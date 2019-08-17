@@ -20,30 +20,32 @@ class Cube:
         self.face = "URFDLB"
         self.hsv = (-1, -1, -1)
         self.position = {
-            "U": {0: (), 1: (), 2: (), 3: (), 4: (), 5: (), 6: (), 7: (), 8: ()},
-            "R": {0: (), 1: (), 2: (), 3: (), 4: (), 5: (), 6: (), 7: (), 8: ()},
-            "F": {0: (), 1: (), 2: (), 3: (), 4: (), 5: (), 6: (), 7: (), 8: ()},
-            "D": {0: (), 1: (), 2: (), 3: (), 4: (), 5: (), 6: (), 7: (), 8: ()},
-            "L": {0: (), 1: (), 2: (), 3: (), 4: (), 5: (), 6: (), 7: (), 8: ()},
-            "B": {0: (), 1: (), 2: (), 3: (), 4: (), 5: (), 6: (), 7: (), 8: ()}
+            "U": {0: (), 1: (), 2: (), 3: (), 4: (), 5: (), 6: (), 7: ()},
+            "R": {0: (), 1: (), 2: (), 3: (), 4: (), 5: (), 6: (), 7: ()},
+            "F": {0: (), 1: (), 2: (), 3: (), 4: (), 5: (), 6: (), 7: ()},
+            "D": {0: (), 1: (), 2: (), 3: (), 4: (), 5: (), 6: (), 7: ()},
+            "L": {0: (), 1: (), 2: (), 3: (), 4: (), 5: (), 6: (), 7: ()},
+            "B": {0: (), 1: (), 2: (), 3: (), 4: (), 5: (), 6: (), 7: ()}
         }
         self.blockHSV = {
-            "U": {0: (), 1: (), 2: (), 3: (), 4: (), 5: (), 6: (), 7: (), 8: ()},
-            "R": {0: (), 1: (), 2: (), 3: (), 4: (), 5: (), 6: (), 7: (), 8: ()},
-            "F": {0: (), 1: (), 2: (), 3: (), 4: (), 5: (), 6: (), 7: (), 8: ()},
-            "D": {0: (), 1: (), 2: (), 3: (), 4: (), 5: (), 6: (), 7: (), 8: ()},
-            "L": {0: (), 1: (), 2: (), 3: (), 4: (), 5: (), 6: (), 7: (), 8: ()},
-            "B": {0: (), 1: (), 2: (), 3: (), 4: (), 5: (), 6: (), 7: (), 8: ()}
+            "U": {0: (), 1: (), 2: (), 3: (), 4: (), 5: (), 6: (), 7: ()},
+            "R": {0: (), 1: (), 2: (), 3: (), 4: (), 5: (), 6: (), 7: ()},
+            "F": {0: (), 1: (), 2: (), 3: (), 4: (), 5: (), 6: (), 7: ()},
+            "D": {0: (), 1: (), 2: (), 3: (), 4: (), 5: (), 6: (), 7: ()},
+            "L": {0: (), 1: (), 2: (), 3: (), 4: (), 5: (), 6: (), 7: ()},
+            "B": {0: (), 1: (), 2: (), 3: (), 4: (), 5: (), 6: (), 7: ()}
         }
         self.blockColor = {
-            "U": {0: "", 1: "", 2: "", 3: "", 4: "", 5: "", 6: "", 7: "", 8: ""},
-            "R": {0: "", 1: "", 2: "", 3: "", 4: "", 5: "", 6: "", 7: "", 8: ""},
-            "F": {0: "", 1: "", 2: "", 3: "", 4: "", 5: "", 6: "", 7: "", 8: ""},
-            "D": {0: "", 1: "", 2: "", 3: "", 4: "", 5: "", 6: "", 7: "", 8: ""},
-            "L": {0: "", 1: "", 2: "", 3: "", 4: "", 5: "", 6: "", 7: "", 8: ""},
-            "B": {0: "", 1: "", 2: "", 3: "", 4: "", 5: "", 6: "", 7: "", 8: ""}
+            "U": {0: "", 1: "", 2: "", 3: "", 4: "", 5: "", 6: "", 7: ""},
+            "R": {0: "", 1: "", 2: "", 3: "", 4: "", 5: "", 6: "", 7: ""},
+            "F": {0: "", 1: "", 2: "", 3: "", 4: "", 5: "", 6: "", 7: ""},
+            "D": {0: "", 1: "", 2: "", 3: "", 4: "", 5: "", 6: "", 7: ""},
+            "L": {0: "", 1: "", 2: "", 3: "", 4: "", 5: "", 6: "", 7: ""},
+            "B": {0: "", 1: "", 2: "", 3: "", 4: "", 5: "", 6: "", 7: ""}
         }
+        # Mouse position
         self.lastPosition = (-1, -1)
+        # Block position to set [face, point]
         self.blockToSet = [0, 0]
         # self.gpio = gpio.Gpio()
         self.upCap = cv2.VideoCapture
@@ -63,6 +65,8 @@ class Cube:
             self.downCap = cv2.VideoCapture(1)
             ret, self.frame_up = self.upCap.read()
             ret, self.frame_down = self.downCap.read()
+            self.frame_up = cv2.flip(self.frame_up, -1)
+            self.frame_down = cv2.flip(self.frame_down, -1)
             self.frame = numpy.hstack((self.frame_up, self.frame_down))  # 水平拼接
             self.frameInHSV = self.frame
         except:
@@ -73,9 +77,13 @@ class Cube:
         self.startTime = time.time()
         ret, self.frame_up = self.upCap.read()
         ret, self.frame_down = self.downCap.read()
+        self.frame_up = cv2.flip(self.frame_up, -1)
+        self.frame_down = cv2.flip(self.frame_down, -1)
         self.frame = numpy.hstack((self.frame_up, self.frame_down))  # 水平拼接
         self.frameInHSV = cv2.cvtColor(self.frame,  cv2.COLOR_BGR2HSV, self.frameInHSV)
+
         # U-yellow R-green F-red D-white L-blue B-orange
+
         '''
         for (faceKey, face) in zip(self.blockHSV.keys(), self.blockHSV.values()):
             for (pointKey, point) in zip(face.keys(), face.values()):
@@ -83,7 +91,7 @@ class Cube:
                 if point[1] < int(0.2 * 255):
                     self.blockColor[faceKey][pointKey] = "D"
         '''
-        for ii in range(9):
+        for ii in range(8):
             s_min = -1
             face_min = -1
             block_min = -1
@@ -98,7 +106,7 @@ class Cube:
 
         # 然后按照H的大小依次分出 Red Orange Yellow Green Blue
         # find Red
-        for ii in range(9):
+        for ii in range(8):
             h_min = 255
             face_min = -1
             block_min = -1
@@ -112,7 +120,7 @@ class Cube:
                 self.blockColor[self.face[face_min]][block_min] = "F"
 
         # find Orange
-        for ii in range(9):
+        for ii in range(8):
             h_min = 255
             face_min = -1
             block_min = -1
@@ -126,7 +134,7 @@ class Cube:
                 self.blockColor[self.face[face_min]][block_min] = "B"
 
         # find for Yellow
-        for ii in range(9):
+        for ii in range(8):
             h_min = 255
             face_min = -1
             block_min = -1
@@ -140,7 +148,7 @@ class Cube:
                 self.blockColor[self.face[face_min]][block_min] = "U"
 
         # find for Green
-        for ii in range(9):
+        for ii in range(8):
             h_min = 255
             face_min = -1
             block_min = -1
@@ -154,7 +162,7 @@ class Cube:
                 self.blockColor[self.face[face_min]][block_min] = "R"
 
         # find for Blue
-        for ii in range(9):
+        for ii in range(8):
             h_min = 255
             face_min = -1
             block_min = -1
@@ -167,11 +175,20 @@ class Cube:
             if face_min >= 0 and block_min >= 0:
                 self.blockColor[self.face[face_min]][block_min] = "L"
 
+        self.colorstr()
+
+    def colorstr(self):
         print(self.blockColor)
         self.Str = ""
         for i in range(6):
             for j in range(9):
-                self.Str += self.blockColor[self.face[i]][j]
+                if j == 5:
+                    self.Str += self.face[i]
+                elif j < 5:
+                    self.Str += self.blockColor[self.face[i]][j]
+                else:
+                    self.Str += self.blockColor[self.face[i]][j - 1]
+            self.Str += ' '
         print(self.Str)
 
     def solve(self):
@@ -213,14 +230,17 @@ class Cube:
         cv2.imshow("Cube", self.frame)
         ret, self.frame_up = self.upCap.read()
         ret, self.frame_down = self.downCap.read()
+        self.frame_up = cv2.flip(self.frame_up, -1)
+        self.frame_down = cv2.flip(self.frame_down, -1)
         self.frame = numpy.hstack((self.frame_up, self.frame_down))  # 水平拼接
         self.frameInHSV = cv2.cvtColor(self.frame,  cv2.COLOR_BGR2HSV, self.frameInHSV)
 
+        # extract HSV value from frameInHSV
         for (faceKey, face) in zip(self.position.keys(), self.position.values()):
             for (pointKey, point) in zip(face.keys(), face.values()):
                 if point:
                     self.blockHSV[faceKey][pointKey] = (self.frameInHSV[point[1], point[0], 0],
-                                                        self.frameInHSV[point[1], point[0], 2],
+                                                        self.frameInHSV[point[1], point[0], 1],
                                                         self.frameInHSV[point[1], point[0], 2])
         # cv2.imshow("hsv", self.frameInHSV)
 
@@ -233,20 +253,26 @@ class Cube:
 
     def setBolckPosition(self, x, y):
         self.position[self.face[self.blockToSet[0]]][self.blockToSet[1]] = (x, y)
+        color = self.color(self.frameInHSV[y, x])
+        print(self.frameInHSV[y, x])
+        print(color)
         self.blockToSet[1] += 1
-        if self.blockToSet[1] == 9:
+        if self.blockToSet[1] == 8:
             self.blockToSet[1] = 0
-            self.blockToSet[0] +=1
+            self.blockToSet[0] += 1
             if self.blockToSet[0] == 6:
                 self.blockToSet = [0, 0]
                 for (faceKey, face) in zip(self.position.keys(), self.position.values()):
                     for (pointKey, point) in zip(face.keys(), face.values()):
                         if point:
                             self.blockHSV[faceKey][pointKey] = (self.frameInHSV[point[1], point[0], 0],
-                                                                self.frameInHSV[point[1], point[0], 2],
+                                                                self.frameInHSV[point[1], point[0], 1],
                                                                 self.frameInHSV[point[1], point[0], 2])
+                            color = self.color(self.blockHSV[faceKey][pointKey])
+                            self.blockColor[faceKey][pointKey] = color
                 #input("Ready to go!!! Press any key to solve!!!")
-                self.detection()
+                # self.detection()
+                self.colorstr()
         # print(self.blockToSet)
         # print(self.position)
         # print(self.blockHSV)
@@ -261,8 +287,23 @@ class Cube:
             if (10 < x < 115 and 10 < y < 70) or (650 < x < 850 and 10 < y < 70):
                 self.upCap, self.downCap = self.downCap, self.upCap
                 self.removeset()
-                return
-            self.setBolckPosition(x, y)
+            else:
+                self.setBolckPosition(x, y)
+
+    def color(self, hsv):
+        if hsv[1] < 90 and hsv[2] < 180:
+            return 'D'
+        else:
+            if hsv[0] < 12:
+                return 'F'
+            elif hsv[0] < 20:
+                return 'B'
+            elif hsv[0] < 50:
+                return 'U'
+            elif hsv[0] < 90:
+                return 'R'
+            else:
+                return 'L'
 
     def main(self):
         # self.thread.start()
