@@ -1,5 +1,6 @@
 import cv2
 import re
+import os
 import urllib.request as requests
 import time
 import numpy
@@ -45,6 +46,30 @@ class Cube:
             "L": {0: "", 1: "", 2: "", 3: "", 4: "", 5: "", 6: "", 7: ""},
             "B": {0: "", 1: "", 2: "", 3: "", 4: "", 5: "", 6: "", 7: ""}
         }
+        self.base = (450, 285)
+        self.lenth = 30
+        self.uBase = (self.base[0] + self.lenth * 3, self.base[1] - self.lenth * 3)
+        self.rBase = (self.base[0] + self.lenth * 6, self.base[1])
+        self.fBase = (self.base[0] + self.lenth * 3, self.base[1])
+        self.dBase = (self.base[0] + self.lenth * 3, self.base[1] + self.lenth * 3)
+        self.lBase = self.base
+        self.bBase = (self.base[0] + self.lenth * 9, self.base[1])
+        self.baseAll = {
+            "U": self.uBase,
+            "R": self.rBase,
+            "F": self.fBase,
+            "D": self.dBase,
+            "L": self.lBase,
+            "B": self.bBase,
+        }
+        self.colorValue = {
+            "U": (0, 255, 255), # yellow
+            "R": (0, 255, 0), # green
+            "F": (0, 0, 255), # red
+            "D": (255, 255, 255), # white
+            "L": (255, 0, 0), # blue
+            "B": (0, 165, 255), # orange
+        }
         # Mouse position
         self.lastPosition = (-1, -1)
         # Block position to set [face, point]
@@ -53,10 +78,11 @@ class Cube:
         self.upCap = cv2.VideoCapture
         self.downCap = cv2.VideoCapture
         self.Str = ''
-        self.base = 'http://localhost:8080/'
+        self.urlBase = 'http://localhost:8080/'
         self.startTime = 0.0
         self.endTime = 0.0
         self.serial = serial.Serial("/dev/ttyUSB0",9600,timeout=0.5)
+        print(self.serial.isOpen())
         self.moves = []
         self.frame = []
         self.frameInHSV = []
@@ -85,97 +111,15 @@ class Cube:
         self.frameInHSV = cv2.cvtColor(self.frame,  cv2.COLOR_BGR2HSV, self.frameInHSV)
 
         # U-yellow R-green F-red D-white L-blue B-orange
-
-        '''
-        for (faceKey, face) in zip(self.blockHSV.keys(), self.blockHSV.values()):
+        for (faceKey, face) in zip(self.position.keys(), self.position.values()):
             for (pointKey, point) in zip(face.keys(), face.values()):
-                # 使用S的阈值先把白色的识别出来
-                if point[1] < int(0.2 * 255):
-                    self.blockColor[faceKey][pointKey] = "D"
-        '''
-        for ii in range(8):
-            s_min = -1
-            face_min = -1
-            block_min = -1
-            for i in range(6):
-                for j in range(9):
-                    if s_min < self.blockHSV[self.face[i]][j][1] and not self.blockColor[self.face[i]][j]:
-                        s_min = self.blockHSV[self.face[i]][j][1]
-                        face_min = i
-                        block_min = j
-            if face_min >= 0 and block_min >= 0:
-                self.blockColor[self.face[face_min]][block_min] = "D"
-
-        # 然后按照H的大小依次分出 Red Orange Yellow Green Blue
-        # find Red
-        for ii in range(8):
-            h_min = 255
-            face_min = -1
-            block_min = -1
-            for i in range(6):
-                for j in range(9):
-                    if h_min > self.blockHSV[self.face[i]][j][0] and not self.blockColor[self.face[i]][j]:
-                        h_min = self.blockHSV[self.face[i]][j][0]
-                        face_min = i
-                        block_min = j
-            if face_min >= 0 and block_min >= 0:
-                self.blockColor[self.face[face_min]][block_min] = "F"
-
-        # find Orange
-        for ii in range(8):
-            h_min = 255
-            face_min = -1
-            block_min = -1
-            for i in range(6):
-                for j in range(9):
-                    if h_min > self.blockHSV[self.face[i]][j][0] and not self.blockColor[self.face[i]][j]:
-                        h_min = self.blockHSV[self.face[i]][j][0]
-                        face_min = i
-                        block_min = j
-            if face_min >= 0 and block_min >= 0:
-                self.blockColor[self.face[face_min]][block_min] = "B"
-
-        # find for Yellow
-        for ii in range(8):
-            h_min = 255
-            face_min = -1
-            block_min = -1
-            for i in range(6):
-                for j in range(9):
-                    if h_min > self.blockHSV[self.face[i]][j][0] and not self.blockColor[self.face[i]][j]:
-                        h_min = self.blockHSV[self.face[i]][j][0]
-                        face_min = i
-                        block_min = j
-            if face_min >= 0 and block_min >= 0:
-                self.blockColor[self.face[face_min]][block_min] = "U"
-
-        # find for Green
-        for ii in range(8):
-            h_min = 255
-            face_min = -1
-            block_min = -1
-            for i in range(6):
-                for j in range(9):
-                    if h_min > self.blockHSV[self.face[i]][j][0] and not self.blockColor[self.face[i]][j]:
-                        h_min = self.blockHSV[self.face[i]][j][0]
-                        face_min = i
-                        block_min = j
-            if face_min >= 0 and block_min >= 0:
-                self.blockColor[self.face[face_min]][block_min] = "R"
-
-        # find for Blue
-        for ii in range(8):
-            h_min = 255
-            face_min = -1
-            block_min = -1
-            for i in range(6):
-                for j in range(9):
-                    if h_min > self.blockHSV[self.face[i]][j][0] and not self.blockColor[self.face[i]][j]:
-                        h_min = self.blockHSV[self.face[i]][j][0]
-                        face_min = i
-                        block_min = j
-            if face_min >= 0 and block_min >= 0:
-                self.blockColor[self.face[face_min]][block_min] = "L"
+                x, y = self.position[faceKey][pointKey]
+                color = self.color(self.frameInHSV[y, x])
+                self.blockColor[faceKey][pointKey] = color
+        ti = time.time()
+        self.show()
+        print(time.time()-ti)
+        # cv2.waitKey(3000)
 
         self.colorstr()
 
@@ -194,14 +138,13 @@ class Cube:
         print(self.Str)
 
     def solve(self):
-        url = self.base + self.Str
+        url = self.urlBase + self.Str
         response = requests.urlopen(url).read()
-        self.move(response)
-        # pattern = re.compile('([URFDLB]\d){1}', re.S)
-        # self.moves = re.findall(pattern, response)
-        # for move in self.moves:
-        #     # self.gpio.move(move)
-        #     pass
+        print(response)
+        pattern = re.compile('\n.*?\(', re.S)
+        moves = re.findall(pattern, response.decode())
+        if moves:
+            self.move(moves[0])
 
     def show(self):
         self.win = cv2.namedWindow("Cube")
@@ -209,26 +152,80 @@ class Cube:
         cv2.rectangle(self.frame, (10, 10), (115, 70), (0, 0, 0), 2)
         cv2.putText(self.frame, 'DOWN', (20 + 640, 60), cv2.FONT_HERSHEY_SIMPLEX, 2, (0, 0, 0), 2, cv2.LINE_AA)
         cv2.rectangle(self.frame, (650, 10), (850, 70), (0, 0, 0), 2)
-
+        cv2.putText(self.frame, 'RAND', (460, 60), cv2.FONT_HERSHEY_SIMPLEX, 2, (0, 0, 0), 2, cv2.LINE_AA)
+        cv2.rectangle(self.frame, (450, 10), (630, 70), (0, 0, 0), 2)
+        cv2.putText(self.frame, 'SOLVE', (430 + 640, 60), cv2.FONT_HERSHEY_SIMPLEX, 2, (0, 0, 0), 2, cv2.LINE_AA)
+        cv2.rectangle(self.frame, (1070, 10), (1270, 70), (0, 0, 0), 2)
+        
         if self.lastPosition[0] > 640:
-            cv2.putText(self.frame, "H:" + str(self.hsv[0]), (10 + 640, 390),
+            cv2.putText(self.frame, "H:" + str(self.hsv[0]), (500 + 640, 390),
                         cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 0), 1, cv2.LINE_AA)
-            cv2.putText(self.frame, "S:" + str(self.hsv[1]), (10 + 640, 420),
+            cv2.putText(self.frame, "S:" + str(self.hsv[1]), (500 + 640, 420),
                         cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 0), 1, cv2.LINE_AA)
-            cv2.putText(self.frame, "V:" + str(self.hsv[2]), (10 + 640, 450),
+            cv2.putText(self.frame, "V:" + str(self.hsv[2]), (500 + 640, 450),
                         cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 0), 1, cv2.LINE_AA)
         else:
-            cv2.putText(self.frame, "H:" + str(self.hsv[0]), (10, 390),
+            cv2.putText(self.frame, "H:" + str(self.hsv[0]), (30, 390),
                         cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 0), 1, cv2.LINE_AA)
-            cv2.putText(self.frame, "S:" + str(self.hsv[1]), (10, 420),
+            cv2.putText(self.frame, "S:" + str(self.hsv[1]), (30, 420),
                         cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 0), 1, cv2.LINE_AA)
-            cv2.putText(self.frame, "V:" + str(self.hsv[2]), (10, 450),
+            cv2.putText(self.frame, "V:" + str(self.hsv[2]), (30, 450),
                         cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 0), 1, cv2.LINE_AA)
-
-        for face in self.position.values():
-            for point in face.values():
+        
+        #   U
+        # L F R B
+        #   D
+        lenth = self.lenth
+        uBase = (self.base[0] + lenth * 3, self.base[1] - lenth * 3)
+        rBase = (self.base[0] + lenth * 6, self.base[1])
+        fBase = (self.base[0] + lenth * 3, self.base[1])
+        dBase = (self.base[0] + lenth * 3, self.base[1] + lenth * 3)
+        lBase = self.base
+        bBase = (self.base[0] + lenth * 9, self.base[1])
+        
+        # background
+        cv2.rectangle(self.frame, lBase, (bBase[0] + lenth * 3,  bBase[1] + lenth * 3), (127, 127, 127), -1)
+        cv2.rectangle(self.frame, uBase, (dBase[0] + lenth * 3,  dBase[1] + lenth * 3), (127, 127, 127), -1)
+        
+        # position point and color bar
+        for (faceKey, face) in zip(self.position.keys(), self.position.values()):
+            # colot bar center 
+            colorBarBase = self.baseAll[faceKey]
+            colorBarStart = (colorBarBase[0] + lenth, colorBarBase[1] + lenth)
+            colorBarEnd = (colorBarBase[0] + lenth * 2, colorBarBase[1] + lenth * 2)
+            colorValue = self.colorValue[faceKey]
+            cv2.rectangle(self.frame, colorBarStart, colorBarEnd, colorValue, -1)
+            
+            for (pointKey, point) in zip(face.keys(), face.values()):
                 if point:
+                    # position point
                     cv2.circle(self.frame, point, 3, (0, 0, 0), -1)
+                    # color bar
+                    color = self.blockColor[faceKey][pointKey]
+                    if color:
+                        colorValue = self.colorValue[color]
+                        if pointKey >= 4:
+                            pointKey += 1
+                        colorBarStart = (colorBarBase[0] + lenth * (pointKey % 3), colorBarBase[1] + lenth * (pointKey // 3))
+                        colorBarEnd = (colorBarBase[0] + lenth * (pointKey % 3 + 1), colorBarBase[1] + lenth * (pointKey // 3 + 1))
+                        cv2.rectangle(self.frame, colorBarStart, colorBarEnd, colorValue, -1)
+                    
+        # face
+        cv2.rectangle(self.frame, lBase, (bBase[0] + lenth * 3,  bBase[1] + lenth * 3), (0, 0, 0), 1)
+        cv2.rectangle(self.frame, uBase, (dBase[0] + lenth * 3,  dBase[1] + lenth * 3), (0, 0, 0), 1)
+        cv2.rectangle(self.frame, rBase, (rBase[0] + lenth * 3,  rBase[1] + lenth * 3), (0, 0, 0), 1)
+        
+        # block      
+        cv2.rectangle(self.frame, (lBase[0] + lenth, lBase[1]), (lBase[0] + lenth * 2,  lBase[1] + lenth * 3), (0, 0, 0), 1)
+        cv2.rectangle(self.frame, (uBase[0] + lenth, uBase[1]), (dBase[0] + lenth * 2,  dBase[1] + lenth * 3), (0, 0, 0), 1)
+        cv2.rectangle(self.frame, (rBase[0] + lenth, rBase[1]), (rBase[0] + lenth * 2,  rBase[1] + lenth * 3), (0, 0, 0), 1)
+        cv2.rectangle(self.frame, (bBase[0] + lenth, bBase[1]), (bBase[0] + lenth * 2,  bBase[1] + lenth * 3), (0, 0, 0), 1)
+        
+        cv2.rectangle(self.frame, (uBase[0], uBase[1] + lenth), (uBase[0] + lenth * 3,  uBase[1] + lenth * 2), (0, 0, 0), 1)
+        cv2.rectangle(self.frame, (lBase[0], lBase[1] + lenth), (bBase[0] + lenth * 3,  bBase[1] + lenth * 2), (0, 0, 0), 1)
+        cv2.rectangle(self.frame, (dBase[0], dBase[1] + lenth), (dBase[0] + lenth * 3,  dBase[1] + lenth * 2), (0, 0, 0), 1)
+
+        
 
         cv2.imshow("Cube", self.frame)
         ret, self.frame_up = self.upCap.read()
@@ -276,27 +273,46 @@ class Cube:
                             #self.blockColor[faceKey][pointKey] = color
                 #input("Ready to go!!! Press any key to solve!!!")
                 # self.detection()
+                self.savePosition()
                 self.colorstr()
                 self.ready = True
         # print(self.blockToSet)
         # print(self.position)
         # print(self.blockHSV)
+        
+    def savePosition(self):
+        # Save
+        print('Saving position...')
+        numpy.save('position.npy', self.position)
 
-
+    def loadPosition(self):
+        # Load
+        if os.path.isfile('position.npy'):
+            print('Loading position...')
+            self.position = numpy.load('position.npy').item()
+        else:
+            print('No position file')
+        
     def mouseCallback(self, event, x, y, flags, param):
         if event == cv2.EVENT_MOUSEMOVE:
             self.lastPosition = (x, y)
-            self.hsv = (self.frameInHSV[y, x, 0], self.frameInHSV[y, x, 1], self.frameInHSV[y, x, 2])
+            if x < 1280 and y < 480:
+                self.hsv = (self.frameInHSV[y, x, 0], self.frameInHSV[y, x, 1], self.frameInHSV[y, x, 2])
 
         if event == cv2.EVENT_LBUTTONDOWN:
             if (10 < x < 115 and 10 < y < 70) or (650 < x < 850 and 10 < y < 70):
                 self.upCap, self.downCap = self.downCap, self.upCap
                 self.removeset()
+            elif 450 < x < 630 and 10 < y < 70:
+                self.rand()
+            elif 1070 < x < 1270 and 10 < y < 70:
+                self.detection()
+                self.ready = True
             else:
                 self.setBolckPosition(x, y)
 
     def color(self, hsv):
-        if hsv[1] < 60 or (hsv[1] < 85 and hsv[2] < 180):
+        if hsv[1] < 60 or (hsv[1] < 85 and hsv[2] < 160):
             return 'D'
         else:
             if hsv[0] < 10:
@@ -314,6 +330,7 @@ class Cube:
         randStr = ''
         for i in range(50):
             randStr += self.face[random.randint(0, 5)]
+            randStr += str(random.randint(1, 3))
         self.move(randStr)
         
     def move(self, moves):
@@ -327,15 +344,16 @@ class Cube:
         # self.thread.start()
         self.show()
         cv2.setMouseCallback("Cube", self.mouseCallback)
-        self.rand()
-        
-        
+        self.loadPosition()
+        # self.rand()
+        # self.Str = 'FDFBURUULBDLLRFRRBRBULFULDBDBURDFFURLLFRLFDBBDLUDBUDFR'
+        # self.ready = 1
         while 1:
             self.show()
             key = cv2.waitKey(30)
             if self.ready:
                 self.displayUpdate = True
-                # cv2.waitKey(300)
+                cv2.waitKey(200)
                 # self.detection()
                 self.solve()
                 self.displayUpdate = False
