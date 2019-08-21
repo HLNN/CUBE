@@ -4,7 +4,8 @@ import urllib.request as requests
 import time
 import numpy
 import threading
-# import serial
+import random
+import serial
 import matplotlib.pyplot as plot
 
 # import gpio
@@ -14,7 +15,8 @@ import config
 class Cube:
     def __init__(self):
         self.stop = False
-        self.displayUpdate = True
+        self.ready = False
+        self.displayUpdate = False
         self.thread = myThread(1, "display", 1, self)
         self.win = cv2.namedWindow("Cube")
         self.face = "URFDLB"
@@ -51,10 +53,10 @@ class Cube:
         self.upCap = cv2.VideoCapture
         self.downCap = cv2.VideoCapture
         self.Str = ''
-        self.base = 'http://localhost:8888/'
+        self.base = 'http://localhost:8080/'
         self.startTime = 0.0
         self.endTime = 0.0
-        # self.ser = serial.
+        self.serial = serial.Serial("/dev/ttyUSB0",9600,timeout=0.5)
         self.moves = []
         self.frame = []
         self.frameInHSV = []
@@ -62,7 +64,7 @@ class Cube:
         self.frame_down = []
         try:
             self.upCap = cv2.VideoCapture(0)
-            self.downCap = cv2.VideoCapture(1)
+            self.downCap = cv2.VideoCapture(2)
             ret, self.frame_up = self.upCap.read()
             ret, self.frame_down = self.downCap.read()
             self.frame_up = cv2.flip(self.frame_up, -1)
@@ -182,29 +184,30 @@ class Cube:
         self.Str = ""
         for i in range(6):
             for j in range(9):
-                if j == 5:
+                if j == 4:
                     self.Str += self.face[i]
-                elif j < 5:
+                elif j < 4:
                     self.Str += self.blockColor[self.face[i]][j]
                 else:
                     self.Str += self.blockColor[self.face[i]][j - 1]
-            self.Str += ' '
+            # self.Str += ' '
         print(self.Str)
 
     def solve(self):
         url = self.base + self.Str
-        response = requests.urlopen(url)
-        pattern = re.compile('([URFDLB]\d){1}', re.S)
-        self.moves = re.findall(pattern, response)
-        for move in self.moves:
-            # self.gpio.move(move)
-            pass
+        response = requests.urlopen(url).read()
+        self.move(response)
+        # pattern = re.compile('([URFDLB]\d){1}', re.S)
+        # self.moves = re.findall(pattern, response)
+        # for move in self.moves:
+        #     # self.gpio.move(move)
+        #     pass
 
     def show(self):
         self.win = cv2.namedWindow("Cube")
         cv2.putText(self.frame, 'UP', (20, 60), cv2.FONT_HERSHEY_SIMPLEX, 2, (0, 0, 0), 2, cv2.LINE_AA)
-        cv2.putText(self.frame, 'DOWN', (20 + 640, 60), cv2.FONT_HERSHEY_SIMPLEX, 2, (0, 0, 0), 2, cv2.LINE_AA)
         cv2.rectangle(self.frame, (10, 10), (115, 70), (0, 0, 0), 2)
+        cv2.putText(self.frame, 'DOWN', (20 + 640, 60), cv2.FONT_HERSHEY_SIMPLEX, 2, (0, 0, 0), 2, cv2.LINE_AA)
         cv2.rectangle(self.frame, (650, 10), (850, 70), (0, 0, 0), 2)
 
         if self.lastPosition[0] > 640:
@@ -254,6 +257,7 @@ class Cube:
     def setBolckPosition(self, x, y):
         self.position[self.face[self.blockToSet[0]]][self.blockToSet[1]] = (x, y)
         color = self.color(self.frameInHSV[y, x])
+        self.blockColor[self.face[self.blockToSet[0]]][self.blockToSet[1]] = color
         print(self.frameInHSV[y, x])
         print(color)
         self.blockToSet[1] += 1
@@ -268,11 +272,12 @@ class Cube:
                             self.blockHSV[faceKey][pointKey] = (self.frameInHSV[point[1], point[0], 0],
                                                                 self.frameInHSV[point[1], point[0], 1],
                                                                 self.frameInHSV[point[1], point[0], 2])
-                            color = self.color(self.blockHSV[faceKey][pointKey])
-                            self.blockColor[faceKey][pointKey] = color
+                            #color = self.color(self.blockHSV[faceKey][pointKey])
+                            #self.blockColor[faceKey][pointKey] = color
                 #input("Ready to go!!! Press any key to solve!!!")
                 # self.detection()
                 self.colorstr()
+                self.ready = True
         # print(self.blockToSet)
         # print(self.position)
         # print(self.blockHSV)
@@ -281,7 +286,7 @@ class Cube:
     def mouseCallback(self, event, x, y, flags, param):
         if event == cv2.EVENT_MOUSEMOVE:
             self.lastPosition = (x, y)
-            self.hsv = (self.frameInHSV[y, x, 0], self.frameInHSV[y, x, 2], self.frameInHSV[y, x, 2])
+            self.hsv = (self.frameInHSV[y, x, 0], self.frameInHSV[y, x, 1], self.frameInHSV[y, x, 2])
 
         if event == cv2.EVENT_LBUTTONDOWN:
             if (10 < x < 115 and 10 < y < 70) or (650 < x < 850 and 10 < y < 70):
@@ -291,12 +296,12 @@ class Cube:
                 self.setBolckPosition(x, y)
 
     def color(self, hsv):
-        if hsv[1] < 90 and hsv[2] < 180:
+        if hsv[1] < 60 or (hsv[1] < 85 and hsv[2] < 180):
             return 'D'
         else:
-            if hsv[0] < 12:
+            if hsv[0] < 10:
                 return 'F'
-            elif hsv[0] < 20:
+            elif hsv[0] < 18:
                 return 'B'
             elif hsv[0] < 50:
                 return 'U'
@@ -304,16 +309,37 @@ class Cube:
                 return 'R'
             else:
                 return 'L'
+            
+    def rand(self):
+        randStr = ''
+        for i in range(50):
+            randStr += self.face[random.randint(0, 5)]
+        self.move(randStr)
+        
+    def move(self, moves):
+        if isinstance(moves, str):
+            self.serial.write(moves.encode())
+        if isinstance(moves, bytes):
+            self.serial.write(moves)
+
 
     def main(self):
         # self.thread.start()
         self.show()
         cv2.setMouseCallback("Cube", self.mouseCallback)
+        self.rand()
+        
+        
         while 1:
             self.show()
             key = cv2.waitKey(30)
-            # self.detection()
-            # self.solve()
+            if self.ready:
+                self.displayUpdate = True
+                # cv2.waitKey(300)
+                # self.detection()
+                self.solve()
+                self.displayUpdate = False
+                self.ready = False
 
 
 class myThread (threading.Thread):
@@ -323,11 +349,22 @@ class myThread (threading.Thread):
         self.name = name
         self.counter = counter
         self.cube = Cube
+        
     def run(self):
         while self.cube.displayUpdate and not self.cube.stop:
             self.cube.show()
+            print('bbb')
             cv2.waitKey(30)
+            
+    def pause(self):
+        self.__flag.clear() # set to False
 
+    def resume(self):
+        self.__flag.set() # set to True
+
+    def stop(self):
+        self.__flag.set() # resume if pause
+        self.__running.clear() # set to False  
 
 if __name__=="__main__":
     cube = Cube()

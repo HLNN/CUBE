@@ -103,9 +103,9 @@ void move(char face, int steps)
         for(x=0; x<100; x++) // Loop 100 times for 180 degree
         {
             digitalWrite(24, HIGH); // Output high
-            delayMicroseconds(800); // Wait 1/2 a ms
+            delayMicroseconds(1000); // Wait 1/2 a ms
             digitalWrite(24, LOW); // Output low
-            delayMicroseconds(800); // Wait 1/2 a ms
+            delayMicroseconds(1000); // Wait 1/2 a ms
         }
     }
     else
@@ -113,9 +113,9 @@ void move(char face, int steps)
         for(x=0; x<50; x++) // Loop 50 times for 90 degree
         {
             digitalWrite(24, HIGH); // Output high
-            delayMicroseconds(800); // Wait 1/2 a ms
+            delayMicroseconds(1000); // Wait 1/2 a ms
             digitalWrite(24, LOW); // Output low
-            delayMicroseconds(800); // Wait 1/2 a ms
+            delayMicroseconds(1000); // Wait 1/2 a ms
         }
     }
     
@@ -125,12 +125,17 @@ void move(char face, int steps)
 void loop()
 {
     
+        move('D', 1);
     if (Serial.available())
     {
         
-    Serial.println("move u1");
-        //move('U', 1);
+    //Serial.println("move u1");
         /*
+        move('R', 1);
+        move('F', 1);
+        move('D', 1);
+        move('L', 1);
+        move('B', 1);
         face = Serial.read();
         
         if(face == 85 || face == 68 || face == 76 || face == 82 || face == 70 || face == 66) // UDLRFB
