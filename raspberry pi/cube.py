@@ -18,6 +18,7 @@ class Cube:
         self.stop = False
         self.ready = False
         self.displayUpdate = False
+        self.needSave = False
         self.thread = myThread(1, "display", 1, self)
         self.win = cv2.namedWindow("Cube")
         self.face = "URFDLB"
@@ -74,6 +75,7 @@ class Cube:
         self.lastPosition = (-1, -1)
         # Block position to set [face, point]
         self.blockToSet = [0, 0]
+        self.blockToSetLast = [-1, -1]
         # self.gpio = gpio.Gpio()
         self.upCap = cv2.VideoCapture
         self.downCap = cv2.VideoCapture
@@ -82,7 +84,7 @@ class Cube:
         self.startTime = 0.0
         self.endTime = 0.0
         self.serial = serial.Serial("/dev/ttyUSB0",9600,timeout=0.5)
-        print(self.serial.isOpen())
+        print('Serial is OK!') if self.serial.isOpen() else print('Open serial failed!')
         self.moves = []
         self.frame = []
         self.frameInHSV = []
@@ -98,7 +100,7 @@ class Cube:
             self.frame = numpy.hstack((self.frame_up, self.frame_down))  # 水平拼接
             self.frameInHSV = self.frame
         except:
-            print("Open camera false!")
+            print("Open camera failed!")
             self.stop = True
 
     def detection(self):
@@ -113,18 +115,14 @@ class Cube:
         # U-yellow R-green F-red D-white L-blue B-orange
         for (faceKey, face) in zip(self.position.keys(), self.position.values()):
             for (pointKey, point) in zip(face.keys(), face.values()):
-                x, y = self.position[faceKey][pointKey]
-                color = self.color(self.frameInHSV[y, x])
-                self.blockColor[faceKey][pointKey] = color
-        ti = time.time()
-        self.show()
-        print(time.time()-ti)
-        # cv2.waitKey(3000)
-
+                if point:
+                    x, y = self.position[faceKey][pointKey]
+                    color = self.color(self.frameInHSV[y, x])
+                    self.blockColor[faceKey][pointKey] = color
         self.colorstr()
 
     def colorstr(self):
-        print(self.blockColor)
+        # print(self.blockColor)
         self.Str = ""
         for i in range(6):
             for j in range(9):
@@ -134,17 +132,25 @@ class Cube:
                     self.Str += self.blockColor[self.face[i]][j]
                 else:
                     self.Str += self.blockColor[self.face[i]][j - 1]
-            # self.Str += ' '
-        print(self.Str)
+        # print(self.Str)
 
     def solve(self):
-        url = self.urlBase + self.Str
-        response = requests.urlopen(url).read()
-        print(response)
-        pattern = re.compile('\n.*?\(', re.S)
-        moves = re.findall(pattern, response.decode())
-        if moves:
-            self.move(moves[0])
+        for _ in range(5):
+            print(self.blockColor)
+            print(self.Str)
+            url = self.urlBase + self.Str
+            ti = time.time()
+            response = requests.urlopen(url).read()
+            print(time.time() - ti)
+            print(response)
+            pattern = re.compile('\n.*?\(', re.S)
+            moves = re.findall(pattern, response.decode())
+            print(moves)
+            if moves:
+                self.move(moves[0])
+                return
+            else:
+                self.detection()
 
     def show(self):
         self.win = cv2.namedWindow("Cube")
@@ -176,16 +182,11 @@ class Cube:
         # L F R B
         #   D
         lenth = self.lenth
-        uBase = (self.base[0] + lenth * 3, self.base[1] - lenth * 3)
-        rBase = (self.base[0] + lenth * 6, self.base[1])
-        fBase = (self.base[0] + lenth * 3, self.base[1])
-        dBase = (self.base[0] + lenth * 3, self.base[1] + lenth * 3)
-        lBase = self.base
-        bBase = (self.base[0] + lenth * 9, self.base[1])
-        
+        baseAll = self.baseAll
+                
         # background
-        cv2.rectangle(self.frame, lBase, (bBase[0] + lenth * 3,  bBase[1] + lenth * 3), (127, 127, 127), -1)
-        cv2.rectangle(self.frame, uBase, (dBase[0] + lenth * 3,  dBase[1] + lenth * 3), (127, 127, 127), -1)
+        cv2.rectangle(self.frame, baseAll['L'], (baseAll['B'][0] + lenth * 3,  baseAll['B'][1] + lenth * 3), (127, 127, 127), -1)
+        cv2.rectangle(self.frame, baseAll['U'], (baseAll['D'][0] + lenth * 3,  baseAll['D'][1] + lenth * 3), (127, 127, 127), -1)
         
         # position point and color bar
         for (faceKey, face) in zip(self.position.keys(), self.position.values()):
@@ -210,23 +211,31 @@ class Cube:
                         colorBarEnd = (colorBarBase[0] + lenth * (pointKey % 3 + 1), colorBarBase[1] + lenth * (pointKey // 3 + 1))
                         cv2.rectangle(self.frame, colorBarStart, colorBarEnd, colorValue, -1)
                     
-        # face
-        cv2.rectangle(self.frame, lBase, (bBase[0] + lenth * 3,  bBase[1] + lenth * 3), (0, 0, 0), 1)
-        cv2.rectangle(self.frame, uBase, (dBase[0] + lenth * 3,  dBase[1] + lenth * 3), (0, 0, 0), 1)
-        cv2.rectangle(self.frame, rBase, (rBase[0] + lenth * 3,  rBase[1] + lenth * 3), (0, 0, 0), 1)
+        # face outline
+        cv2.rectangle(self.frame, baseAll['L'], (baseAll['B'][0] + lenth * 3,  baseAll['B'][1] + lenth * 3), (0, 0, 0), 1)
+        cv2.rectangle(self.frame, baseAll['U'], (baseAll['D'][0] + lenth * 3,  baseAll['D'][1] + lenth * 3), (0, 0, 0), 1)
+        cv2.rectangle(self.frame, baseAll['R'], (baseAll['R'][0] + lenth * 3,  baseAll['R'][1] + lenth * 3), (0, 0, 0), 1)
         
-        # block      
-        cv2.rectangle(self.frame, (lBase[0] + lenth, lBase[1]), (lBase[0] + lenth * 2,  lBase[1] + lenth * 3), (0, 0, 0), 1)
-        cv2.rectangle(self.frame, (uBase[0] + lenth, uBase[1]), (dBase[0] + lenth * 2,  dBase[1] + lenth * 3), (0, 0, 0), 1)
-        cv2.rectangle(self.frame, (rBase[0] + lenth, rBase[1]), (rBase[0] + lenth * 2,  rBase[1] + lenth * 3), (0, 0, 0), 1)
-        cv2.rectangle(self.frame, (bBase[0] + lenth, bBase[1]), (bBase[0] + lenth * 2,  bBase[1] + lenth * 3), (0, 0, 0), 1)
+        # block outline
+        cv2.rectangle(self.frame, (baseAll['L'][0] + lenth, baseAll['L'][1]), (baseAll['L'][0] + lenth * 2,  baseAll['L'][1] + lenth * 3), (0, 0, 0), 1)
+        cv2.rectangle(self.frame, (baseAll['U'][0] + lenth, baseAll['U'][1]), (baseAll['D'][0] + lenth * 2,  baseAll['D'][1] + lenth * 3), (0, 0, 0), 1)
+        cv2.rectangle(self.frame, (baseAll['R'][0] + lenth, baseAll['R'][1]), (baseAll['R'][0] + lenth * 2,  baseAll['R'][1] + lenth * 3), (0, 0, 0), 1)
+        cv2.rectangle(self.frame, (baseAll['B'][0] + lenth, baseAll['B'][1]), (baseAll['B'][0] + lenth * 2,  baseAll['B'][1] + lenth * 3), (0, 0, 0), 1)
         
-        cv2.rectangle(self.frame, (uBase[0], uBase[1] + lenth), (uBase[0] + lenth * 3,  uBase[1] + lenth * 2), (0, 0, 0), 1)
-        cv2.rectangle(self.frame, (lBase[0], lBase[1] + lenth), (bBase[0] + lenth * 3,  bBase[1] + lenth * 2), (0, 0, 0), 1)
-        cv2.rectangle(self.frame, (dBase[0], dBase[1] + lenth), (dBase[0] + lenth * 3,  dBase[1] + lenth * 2), (0, 0, 0), 1)
+        cv2.rectangle(self.frame, (baseAll['U'][0], baseAll['U'][1] + lenth), (baseAll['U'][0] + lenth * 3,  baseAll['U'][1] + lenth * 2), (0, 0, 0), 1)
+        cv2.rectangle(self.frame, (baseAll['L'][0], baseAll['L'][1] + lenth), (baseAll['B'][0] + lenth * 3,  baseAll['B'][1] + lenth * 2), (0, 0, 0), 1)
+        cv2.rectangle(self.frame, (baseAll['D'][0], baseAll['D'][1] + lenth), (baseAll['D'][0] + lenth * 3,  baseAll['D'][1] + lenth * 2), (0, 0, 0), 1)
 
-        
+        # setting point
+        blockToSet = self.blockToSet.copy()
+        pointBarBase = self.baseAll[self.face[blockToSet[0]]]
+        if blockToSet[1] >= 4:
+            blockToSet[1] += 1
+        pointBarStart = (pointBarBase[0] + lenth * (blockToSet[1] % 3), pointBarBase[1] + lenth * (blockToSet[1] // 3))
+        pointBarEnd = (pointBarBase[0] + lenth * (blockToSet[1] % 3 + 1), pointBarBase[1] + lenth * (blockToSet[1] // 3 + 1))
+        cv2.rectangle(self.frame, pointBarStart, pointBarEnd, (0, 0, 0), 2)
 
+        # camera picture for next frame
         cv2.imshow("Cube", self.frame)
         ret, self.frame_up = self.upCap.read()
         ret, self.frame_down = self.downCap.read()
@@ -234,15 +243,6 @@ class Cube:
         self.frame_down = cv2.flip(self.frame_down, -1)
         self.frame = numpy.hstack((self.frame_up, self.frame_down))  # 水平拼接
         self.frameInHSV = cv2.cvtColor(self.frame,  cv2.COLOR_BGR2HSV, self.frameInHSV)
-
-        # extract HSV value from frameInHSV
-        for (faceKey, face) in zip(self.position.keys(), self.position.values()):
-            for (pointKey, point) in zip(face.keys(), face.values()):
-                if point:
-                    self.blockHSV[faceKey][pointKey] = (self.frameInHSV[point[1], point[0], 0],
-                                                        self.frameInHSV[point[1], point[0], 1],
-                                                        self.frameInHSV[point[1], point[0], 2])
-        # cv2.imshow("hsv", self.frameInHSV)
 
     def removeset(self):
         self.blockToSet = [0, 0]
@@ -253,32 +253,22 @@ class Cube:
 
     def setBolckPosition(self, x, y):
         self.position[self.face[self.blockToSet[0]]][self.blockToSet[1]] = (x, y)
-        color = self.color(self.frameInHSV[y, x])
-        self.blockColor[self.face[self.blockToSet[0]]][self.blockToSet[1]] = color
         print(self.frameInHSV[y, x])
-        print(color)
-        self.blockToSet[1] += 1
-        if self.blockToSet[1] == 8:
-            self.blockToSet[1] = 0
-            self.blockToSet[0] += 1
-            if self.blockToSet[0] == 6:
-                self.blockToSet = [0, 0]
-                for (faceKey, face) in zip(self.position.keys(), self.position.values()):
-                    for (pointKey, point) in zip(face.keys(), face.values()):
-                        if point:
-                            self.blockHSV[faceKey][pointKey] = (self.frameInHSV[point[1], point[0], 0],
-                                                                self.frameInHSV[point[1], point[0], 1],
-                                                                self.frameInHSV[point[1], point[0], 2])
-                            #color = self.color(self.blockHSV[faceKey][pointKey])
-                            #self.blockColor[faceKey][pointKey] = color
-                #input("Ready to go!!! Press any key to solve!!!")
-                # self.detection()
-                self.savePosition()
-                self.colorstr()
-                self.ready = True
-        # print(self.blockToSet)
-        # print(self.position)
-        # print(self.blockHSV)
+        print(self.color(self.frameInHSV[y, x]))
+        if self.needSave:
+            self.needSave = False
+            self.blockToSet = self.blockToSetLast.copy()
+            self.blockToSetLast = [-1, -1]
+            self.savePosition()
+        else:
+            self.blockToSet[1] += 1
+            if self.blockToSet[1] == 8:
+                self.blockToSet[1] = 0
+                self.blockToSet[0] += 1
+                if self.blockToSet[0] == 6:
+                    self.blockToSet = [0, 0]
+                    input("Ready to go!")
+                    self.savePosition()
         
     def savePosition(self):
         # Save
@@ -308,6 +298,86 @@ class Cube:
             elif 1070 < x < 1270 and 10 < y < 70:
                 self.detection()
                 self.ready = True
+            elif (self.baseAll['L'][0] < x < self.baseAll['B'][0] + self.lenth * 3 and \
+                  self.baseAll['L'][1] < y < self.baseAll['B'][1] + self.lenth * 3) or \
+                  (self.baseAll['U'][0] < x < self.baseAll['D'][0] + self.lenth * 3 and \
+                   self.baseAll['U'][1] < y < self.baseAll['D'][1] + self.lenth * 3):
+                print(self.blockToSet, self.blockToSetLast)
+                self.needSave = True
+                if self.blockToSetLast == [-1, -1]:
+                    self.blockToSetLast = self.blockToSet.copy()
+                        
+                #   U
+                # L F R B
+                #   D
+                # U0 R1 F2 D3 L4 B5"
+                base = ()
+                if x < self.baseAll['U'][0]:
+                    # In face L
+                    base = self.baseAll['L']
+                    self.blockToSet[0] = 4
+                elif x < self.baseAll['R'][0]:
+                    # In face U F D
+                    if y < self.baseAll['F'][1]:
+                        # In face U
+                        base = self.baseAll['U']
+                        self.blockToSet[0] = 0
+                    elif y < self.baseAll['D'][1]:
+                        # In face F
+                        base = self.baseAll['F']
+                        self.blockToSet[0] = 2
+                    else:
+                        # In face D
+                        base = self.baseAll['D']
+                        self.blockToSet[0] = 3
+                elif x < self.baseAll['B'][0]:
+                    # In face R
+                    base = self.baseAll['R']
+                    self.blockToSet[0] = 1
+                else:
+                    # In face B
+                    base = self.baseAll['B']
+                    self.blockToSet[0] = 5
+                
+                # 0 1 2
+                # 3 X 4
+                # 5 6 7
+                if x < base[0] + self.lenth:
+                    # In block 0 3 5
+                    if y < base[1] + self.lenth:
+                        # In block 0
+                        self.blockToSet[1] = 0
+                    elif y < base[1] + self.lenth * 2:
+                        # In block 3
+                        self.blockToSet[1] = 3
+                    else:
+                        # In block 5
+                        self.blockToSet[1] = 5
+                elif x < base[0] + self.lenth * 2:
+                    # In block 1 X 6
+                    if y < base[1] + self.lenth:
+                        # In block 1
+                        self.blockToSet[1] = 1
+                    elif y < base[1] + self.lenth * 2:
+                        # In block X
+                        # Roll back
+                        self.blockToSet = self.blockToSetLast.copy()
+                        self.blockToSetLast = [-1, -1]
+                    else:
+                        # In block 6
+                        self.blockToSet[1] = 6
+                else:
+                    # In block 2 4 7
+                    if y < base[1] + self.lenth:
+                        # In block 2
+                        self.blockToSet[1] = 2
+                    elif y < base[1] + self.lenth * 2:
+                        # In block 4
+                        self.blockToSet[1] = 4
+                    else:
+                        # In block 7
+                        self.blockToSet[1] = 7
+                print(self.blockToSet, self.blockToSetLast)
             else:
                 self.setBolckPosition(x, y)
 
@@ -342,19 +412,18 @@ class Cube:
 
     def main(self):
         # self.thread.start()
-        self.show()
+        # self.show()
         cv2.setMouseCallback("Cube", self.mouseCallback)
         self.loadPosition()
         # self.rand()
         # self.Str = 'FDFBURUULBDLLRFRRBRBULFULDBDBURDFFURLLFRLFDBBDLUDBUDFR'
         # self.ready = 1
-        while 1:
+        while not self.stop:
+            self.detection()
             self.show()
             key = cv2.waitKey(30)
             if self.ready:
                 self.displayUpdate = True
-                cv2.waitKey(200)
-                # self.detection()
                 self.solve()
                 self.displayUpdate = False
                 self.ready = False
