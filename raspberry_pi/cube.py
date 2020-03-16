@@ -1,27 +1,64 @@
 import cv2
 import re
 import os
-import urllib.request as requests
 import time
 import numpy
-import threading
 import random
 import serial
-import matplotlib.pyplot as plot
-import config
+import urllib.request as requests
+
+
+def add2(a, b):
+    if len(a) == len(b):
+        return tuple(a[i] + b[i] for i in range(len(a)))
+
+
+def mul2(a, num):
+    return tuple(a[i] * num for i in range(len(a)))
 
 
 class Cube:
-    def __init__(self):
-        self.stop = False
-        self.ready = False
-        self.displayUpdate = False
-        self.needSave = False
-        self.thread = myThread(1, "display", 1, self)
-        self.win = cv2.namedWindow("Cube")
+    def __init__(self, display=True, serialName="/dev/ttyUSB0"):
         self.face = "URFDLB"
+        self.upCap = cv2.VideoCapture
+        self.downCap = cv2.VideoCapture
+        self.urlBase = "http://localhost:5555/"
+        # self.serial = serial.Serial(serialName, 9600, timeout=0.5)
+        # print("Serial is OK!") if self.serial.isOpen() else print("Open serial failed!")
+        # Stop and quit the program
+        self.stop = False
+        # Ready for solving
+        self.ready = False
+        # True when position info was modified
+        self.needSave = False
+        # HSV value at the point the mouse
         self.hsv = (-1, -1, -1)
+        # Start and finish timestamp of single solving
+        self.startTime = 0.0
+        self.finishTime = 0.0
+        # Facelet color string
+        self.Str = ""
+        # Solving step list
+        self.moves = []
+        # Single frame for camera
+        self.frame_up = []
+        self.frame_down = []
+        self.frame = []
+        self.mask = []
+        self.frameInHSV = []
+        # Position info of every facelet
+        # Each facelet include several ROI
         self.position = {
+            "U": {0: [], 1: [], 2: [], 3: [], 4: [], 5: [], 6: [], 7: []},
+            "R": {0: [], 1: [], 2: [], 3: [], 4: [], 5: [], 6: [], 7: []},
+            "F": {0: [], 1: [], 2: [], 3: [], 4: [], 5: [], 6: [], 7: []},
+            "D": {0: [], 1: [], 2: [], 3: [], 4: [], 5: [], 6: [], 7: []},
+            "L": {0: [], 1: [], 2: [], 3: [], 4: [], 5: [], 6: [], 7: []},
+            "B": {0: [], 1: [], 2: [], 3: [], 4: [], 5: [], 6: [], 7: []},
+        }
+        # HSV value of every facelet
+        # Mean of points in ROIs
+        self.faceletHSV = {
             "U": {0: (), 1: (), 2: (), 3: (), 4: (), 5: (), 6: (), 7: ()},
             "R": {0: (), 1: (), 2: (), 3: (), 4: (), 5: (), 6: (), 7: ()},
             "F": {0: (), 1: (), 2: (), 3: (), 4: (), 5: (), 6: (), 7: ()},
@@ -29,15 +66,8 @@ class Cube:
             "L": {0: (), 1: (), 2: (), 3: (), 4: (), 5: (), 6: (), 7: ()},
             "B": {0: (), 1: (), 2: (), 3: (), 4: (), 5: (), 6: (), 7: ()},
         }
-        self.blockHSV = {
-            "U": {0: (), 1: (), 2: (), 3: (), 4: (), 5: (), 6: (), 7: ()},
-            "R": {0: (), 1: (), 2: (), 3: (), 4: (), 5: (), 6: (), 7: ()},
-            "F": {0: (), 1: (), 2: (), 3: (), 4: (), 5: (), 6: (), 7: ()},
-            "D": {0: (), 1: (), 2: (), 3: (), 4: (), 5: (), 6: (), 7: ()},
-            "L": {0: (), 1: (), 2: (), 3: (), 4: (), 5: (), 6: (), 7: ()},
-            "B": {0: (), 1: (), 2: (), 3: (), 4: (), 5: (), 6: (), 7: ()},
-        }
-        self.blockColor = {
+        # Color of every facelet
+        self.faceletColor = {
             "U": {0: "", 1: "", 2: "", 3: "", 4: "", 5: "", 6: "", 7: ""},
             "R": {0: "", 1: "", 2: "", 3: "", 4: "", 5: "", 6: "", 7: ""},
             "F": {0: "", 1: "", 2: "", 3: "", 4: "", 5: "", 6: "", 7: ""},
@@ -45,21 +75,22 @@ class Cube:
             "L": {0: "", 1: "", 2: "", 3: "", 4: "", 5: "", 6: "", 7: ""},
             "B": {0: "", 1: "", 2: "", 3: "", 4: "", 5: "", 6: "", 7: ""},
         }
-        self.base = (450, 285)
+        # Attribute for display and mouse callback
+        self.display = display
+        if self.display:
+            self.win = cv2.namedWindow("Cube")
+        self.font = cv2.FONT_HERSHEY_SIMPLEX
+        self.line = cv2.LINE_AA
+        # Color bar setting
+        self.origin = (450, 285)
         self.lenth = 30
-        self.uBase = (self.base[0] + self.lenth * 3, self.base[1] - self.lenth * 3)
-        self.rBase = (self.base[0] + self.lenth * 6, self.base[1])
-        self.fBase = (self.base[0] + self.lenth * 3, self.base[1])
-        self.dBase = (self.base[0] + self.lenth * 3, self.base[1] + self.lenth * 3)
-        self.lBase = self.base
-        self.bBase = (self.base[0] + self.lenth * 9, self.base[1])
         self.baseAll = {
-            "U": self.uBase,
-            "R": self.rBase,
-            "F": self.fBase,
-            "D": self.dBase,
-            "L": self.lBase,
-            "B": self.bBase,
+            "U": self.offset(self.origin, 3, -3),
+            "R": self.offset(self.origin, 6, 0),
+            "F": self.offset(self.origin, 3, 0),
+            "D": self.offset(self.origin, 3, 3),
+            "L": self.origin,
+            "B": self.offset(self.origin, 9, 0),
         }
         self.colorValue = {
             "U": (0, 255, 255),  # yellow
@@ -71,69 +102,64 @@ class Cube:
         }
         # Mouse position
         self.lastPosition = (-1, -1)
-        # Block position to set [face, point]
-        self.blockToSet = [0, 0]
-        self.blockToSetLast = [-1, -1]
-        self.upCap = cv2.VideoCapture
-        self.downCap = cv2.VideoCapture
-        self.Str = ""
-        self.urlBase = "http://localhost:8080/"
-        self.startTime = 0.0
-        self.endTime = 0.0
-        self.serial = serial.Serial("/dev/ttyUSB0", 9600, timeout=0.5)
-        print("Serial is OK!") if self.serial.isOpen() else print("Open serial failed!")
-        self.moves = []
-        self.frame = []
-        self.frameInHSV = []
-        self.frame_up = []
-        self.frame_down = []
+        # Facelet going to set
+        self.faceletToSet = [0, 0]
+        self.faceletToSetLast = [-1, -1]
         try:
             self.upCap = cv2.VideoCapture(0)
-            self.downCap = cv2.VideoCapture(2)
-            ret, self.frame_up = self.upCap.read()
-            ret, self.frame_down = self.downCap.read()
-            self.frame_up = cv2.flip(self.frame_up, -1)
-            self.frame_down = cv2.flip(self.frame_down, -1)
-            self.frame = numpy.hstack((self.frame_up, self.frame_down))  # 水平拼接
-            self.frameInHSV = self.frame
+            # self.downCap = cv2.VideoCapture(2)
+            self.downCap = self.upCap
+            self.getFrame()
+            self.mask = self.frame.copy()
+            self.mask = cv2.cvtColor(self.mask, cv2.COLOR_BGR2GRAY)
         except:
             print("Open camera failed!")
             self.stop = True
 
-    def detection(self):
-        self.startTime = time.time()
+    def getFrame(self):
         ret, self.frame_up = self.upCap.read()
         ret, self.frame_down = self.downCap.read()
         self.frame_up = cv2.flip(self.frame_up, -1)
         self.frame_down = cv2.flip(self.frame_down, -1)
-        self.frame = numpy.hstack((self.frame_up, self.frame_down))  # 水平拼接
-        self.frameInHSV = cv2.cvtColor(self.frame, cv2.COLOR_BGR2HSV, self.frameInHSV)
+        self.frame = numpy.hstack((self.frame_up, self.frame_down))
+        self.frameInHSV = cv2.cvtColor(self.frame, cv2.COLOR_BGR2HSV)
 
+    def detection(self):
+        self.getFrame()
         # U-yellow R-green F-red D-white L-blue B-orange
+        # todo: Change point to ROIs when detect
         for (faceKey, face) in zip(self.position.keys(), self.position.values()):
             for (pointKey, point) in zip(face.keys(), face.values()):
                 if point:
-                    x, y = self.position[faceKey][pointKey]
-                    color = self.color(self.frameInHSV[y, x])
-                    self.blockColor[faceKey][pointKey] = color
+                    rois = self.position[faceKey][pointKey]
+                    faceletColor = (0, 0, 0)
+                    for roi in rois:
+                        if isinstance(roi, list):
+                            continue
+                        self.mask[:, :] = 0
+                        cv2.fillPoly(self.mask, numpy.array([roi]), (255, 255, 255))
+                        meanColor = cv2.mean(self.frame, self.mask)
+                        add2(faceletColor, meanColor)
+                    self.faceletColor[faceKey][pointKey] = self.color(faceletColor)
+                else:
+                    self.faceletColor[faceKey][pointKey] = ""
         self.colorstr()
 
     def colorstr(self):
-        # print(self.blockColor)
         self.Str = ""
         for i in range(6):
             for j in range(9):
                 if j == 4:
                     self.Str += self.face[i]
                 elif j < 4:
-                    self.Str += self.blockColor[self.face[i]][j]
+                    self.Str += self.faceletColor[self.face[i]][j]
                 else:
-                    self.Str += self.blockColor[self.face[i]][j - 1]
+                    self.Str += self.faceletColor[self.face[i]][j - 1]
         # print(self.Str)
 
     def solve(self):
         for _ in range(5):
-            print(self.blockColor)
+            print(self.faceletColor)
             print(self.Str)
             url = self.urlBase + self.Str
             ti = time.time()
@@ -150,300 +176,116 @@ class Cube:
                 self.detection()
 
     def show(self):
-        self.win = cv2.namedWindow("Cube")
-        cv2.putText(
-            self.frame,
-            "UP",
-            (20, 60),
-            cv2.FONT_HERSHEY_SIMPLEX,
-            2,
-            (0, 0, 0),
-            2,
-            cv2.LINE_AA,
-        )
+        cv2.putText(self.frame, "UP", (20, 60), self.font, 2, (0, 0, 0), 2, self.line)
         cv2.rectangle(self.frame, (10, 10), (115, 70), (0, 0, 0), 2)
-        cv2.putText(
-            self.frame,
-            "DOWN",
-            (20 + 640, 60),
-            cv2.FONT_HERSHEY_SIMPLEX,
-            2,
-            (0, 0, 0),
-            2,
-            cv2.LINE_AA,
-        )
+        cv2.putText(self.frame, "DOWN", (20 + 640, 60), self.font, 2, (0, 0, 0), 2, self.line)
         cv2.rectangle(self.frame, (650, 10), (850, 70), (0, 0, 0), 2)
-        cv2.putText(
-            self.frame,
-            "RAND",
-            (460, 60),
-            cv2.FONT_HERSHEY_SIMPLEX,
-            2,
-            (0, 0, 0),
-            2,
-            cv2.LINE_AA,
-        )  #
+        cv2.putText(self.frame, "RAND", (460, 60), self.font, 2, (0, 0, 0), 2, self.line)
         cv2.rectangle(self.frame, (450, 10), (630, 70), (0, 0, 0), 2)
-        cv2.putText(
-            self.frame,
-            "SOLVE",
-            (430 + 640, 60),
-            cv2.FONT_HERSHEY_SIMPLEX,
-            2,
-            (0, 0, 0),
-            2,
-            cv2.LINE_AA,
-        )
+        cv2.putText(self.frame, "SOLVE", (430 + 640, 60), self.font, 2, (0, 0, 0), 2, self.line)
         cv2.rectangle(self.frame, (1070, 10), (1270, 70), (0, 0, 0), 2)
 
         if self.lastPosition[0] > 640:
-            cv2.putText(
-                self.frame,
-                "H:" + str(self.hsv[0]),
-                (500 + 640, 390),
-                cv2.FONT_HERSHEY_SIMPLEX,
-                1,
-                (0, 0, 0),
-                1,
-                cv2.LINE_AA,
-            )
-            cv2.putText(
-                self.frame,
-                "S:" + str(self.hsv[1]),
-                (500 + 640, 420),
-                cv2.FONT_HERSHEY_SIMPLEX,
-                1,
-                (0, 0, 0),
-                1,
-                cv2.LINE_AA,
-            )
-            cv2.putText(
-                self.frame,
-                "V:" + str(self.hsv[2]),
-                (500 + 640, 450),
-                cv2.FONT_HERSHEY_SIMPLEX,
-                1,
-                (0, 0, 0),
-                1,
-                cv2.LINE_AA,
-            )
+            cv2.putText(self.frame, "H:" + str(self.hsv[0]), (500 + 640, 390), self.font, 1, (0, 0, 0), 1, self.line)
+            cv2.putText(self.frame, "S:" + str(self.hsv[1]), (500 + 640, 420), self.font, 1, (0, 0, 0), 1, self.line)
+            cv2.putText(self.frame, "V:" + str(self.hsv[2]), (500 + 640, 450), self.font, 1, (0, 0, 0), 1, self.line)
         else:
-            cv2.putText(
-                self.frame,
-                "H:" + str(self.hsv[0]),
-                (30, 390),
-                cv2.FONT_HERSHEY_SIMPLEX,
-                1,
-                (0, 0, 0),
-                1,
-                cv2.LINE_AA,
-            )
-            cv2.putText(
-                self.frame,
-                "S:" + str(self.hsv[1]),
-                (30, 420),
-                cv2.FONT_HERSHEY_SIMPLEX,
-                1,
-                (0, 0, 0),
-                1,
-                cv2.LINE_AA,
-            )
-            cv2.putText(
-                self.frame,
-                "V:" + str(self.hsv[2]),
-                (30, 450),
-                cv2.FONT_HERSHEY_SIMPLEX,
-                1,
-                (0, 0, 0),
-                1,
-                cv2.LINE_AA,
-            )
+            cv2.putText(self.frame, "H:" + str(self.hsv[0]), (30, 390), self.font, 1, (0, 0, 0), 1, self.line)
+            cv2.putText(self.frame, "S:" + str(self.hsv[1]), (30, 420), self.font, 1, (0, 0, 0), 1, self.line)
+            cv2.putText(self.frame, "V:" + str(self.hsv[2]), (30, 450), self.font, 1, (0, 0, 0), 1, self.line)
 
         #   U
         # L F R B
         #   D
-        lenth = self.lenth
         baseAll = self.baseAll
 
-        # background
-        cv2.rectangle(
-            self.frame,
-            baseAll["L"],
-            (baseAll["B"][0] + lenth * 3, baseAll["B"][1] + lenth * 3),
-            (127, 127, 127),
-            -1,
-        )
-        cv2.rectangle(
-            self.frame,
-            baseAll["U"],
-            (baseAll["D"][0] + lenth * 3, baseAll["D"][1] + lenth * 3),
-            (127, 127, 127),
-            -1,
-        )
+        # Background of color bar
+        cv2.rectangle(self.frame, baseAll["L"], self.offset(baseAll["B"], 3, 3), (127, 127, 127), -1)
+        cv2.rectangle(self.frame, baseAll["U"], self.offset(baseAll["D"], 3, 3), (127, 127, 127), -1)
 
-        # position point and color bar
+        # Position point and color bar
         for (faceKey, face) in zip(self.position.keys(), self.position.values()):
-            # colot bar center
+            # Center facelet of every face
             colorBarBase = self.baseAll[faceKey]
-            colorBarStart = (colorBarBase[0] + lenth, colorBarBase[1] + lenth)
-            colorBarEnd = (colorBarBase[0] + lenth * 2, colorBarBase[1] + lenth * 2)
+            colorBarStart = self.offset(colorBarBase, 1, 1)
+            colorBarEnd = self.offset(colorBarBase, 2, 2)
             colorValue = self.colorValue[faceKey]
             cv2.rectangle(self.frame, colorBarStart, colorBarEnd, colorValue, -1)
 
-            for (pointKey, point) in zip(face.keys(), face.values()):
-                if point:
-                    # position point
-                    cv2.circle(self.frame, point, 3, (0, 0, 0), -1)
-                    # color bar
-                    color = self.blockColor[faceKey][pointKey]
+            for (faceletKey, facelet) in zip(face.keys(), face.values()):
+                if facelet:
+                    # Draw position point on cube
+                    # TODO: change position point to position ROIs when display setting
+                    for roi in facelet:
+                        if len(roi):
+                            start = roi[0]
+                            lastPoint = start
+                            for (i, point) in enumerate(roi):
+                                cv2.circle(self.frame, point, 3, (0, 0, 0), -1)
+                                cv2.line(self.frame, lastPoint, point, (0, 0, 0))
+                                lastPoint = point
+                            if isinstance(roi, tuple):
+                                cv2.line(self.frame, lastPoint, start, (0, 0, 0))
+                    # Draw facelet colot in color bar
+                    color = self.faceletColor[faceKey][faceletKey]
                     if color:
                         colorValue = self.colorValue[color]
-                        if pointKey >= 4:
-                            pointKey += 1
-                        colorBarStart = (
-                            colorBarBase[0] + lenth * (pointKey % 3),
-                            colorBarBase[1] + lenth * (pointKey // 3),
-                        )
-                        colorBarEnd = (
-                            colorBarBase[0] + lenth * (pointKey % 3 + 1),
-                            colorBarBase[1] + lenth * (pointKey // 3 + 1),
-                        )
-                        cv2.rectangle(
-                            self.frame, colorBarStart, colorBarEnd, colorValue, -1
-                        )
+                        if faceletKey >= 4:
+                            faceletKey += 1
+                        colorBarStart = self.offset(colorBarBase, divmod(faceletKey, 3)[::-1])
+                        colorBarEnd = self.offset(colorBarBase, add2(divmod(faceletKey, 3)[::-1], (1, 1)))
+                        cv2.rectangle(self.frame, colorBarStart, colorBarEnd, colorValue, -1)
 
-        # face outline
-        cv2.rectangle(
-            self.frame,
-            baseAll["L"],
-            (baseAll["B"][0] + lenth * 3, baseAll["B"][1] + lenth * 3),
-            (0, 0, 0),
-            1,
-        )
-        cv2.rectangle(
-            self.frame,
-            baseAll["U"],
-            (baseAll["D"][0] + lenth * 3, baseAll["D"][1] + lenth * 3),
-            (0, 0, 0),
-            1,
-        )
-        cv2.rectangle(
-            self.frame,
-            baseAll["R"],
-            (baseAll["R"][0] + lenth * 3, baseAll["R"][1] + lenth * 3),
-            (0, 0, 0),
-            1,
-        )
+        # Face outline
+        cv2.rectangle(self.frame, baseAll["L"], self.offset(baseAll["B"], 3, 3), (0, 0, 0), 1)
+        cv2.rectangle(self.frame, baseAll["U"], self.offset(baseAll["D"], 3, 3), (0, 0, 0), 1)
+        cv2.rectangle(self.frame, baseAll["R"], self.offset(baseAll["R"], 3, 3), (0, 0, 0), 1)
 
-        # block outline
-        cv2.rectangle(
-            self.frame,
-            (baseAll["L"][0] + lenth, baseAll["L"][1]),
-            (baseAll["L"][0] + lenth * 2, baseAll["L"][1] + lenth * 3),
-            (0, 0, 0),
-            1,
-        )
-        cv2.rectangle(
-            self.frame,
-            (baseAll["U"][0] + lenth, baseAll["U"][1]),
-            (baseAll["D"][0] + lenth * 2, baseAll["D"][1] + lenth * 3),
-            (0, 0, 0),
-            1,
-        )
-        cv2.rectangle(
-            self.frame,
-            (baseAll["R"][0] + lenth, baseAll["R"][1]),
-            (baseAll["R"][0] + lenth * 2, baseAll["R"][1] + lenth * 3),
-            (0, 0, 0),
-            1,
-        )
-        cv2.rectangle(
-            self.frame,
-            (baseAll["B"][0] + lenth, baseAll["B"][1]),
-            (baseAll["B"][0] + lenth * 2, baseAll["B"][1] + lenth * 3),
-            (0, 0, 0),
-            1,
-        )
+        # Facelet outline
+        cv2.rectangle(self.frame, self.offset(baseAll["L"], 1, 0), self.offset(baseAll["L"], 2, 3), (0, 0, 0), 1)
+        cv2.rectangle(self.frame, self.offset(baseAll["U"], 1, 0), self.offset(baseAll["D"], 2, 3), (0, 0, 0), 1)
+        cv2.rectangle(self.frame, self.offset(baseAll["R"], 1, 0), self.offset(baseAll["R"], 2, 3), (0, 0, 0), 1)
+        cv2.rectangle(self.frame, self.offset(baseAll["B"], 1, 0), self.offset(baseAll["B"], 2, 3), (0, 0, 0), 1)
 
-        cv2.rectangle(
-            self.frame,
-            (baseAll["U"][0], baseAll["U"][1] + lenth),
-            (baseAll["U"][0] + lenth * 3, baseAll["U"][1] + lenth * 2),
-            (0, 0, 0),
-            1,
-        )
-        cv2.rectangle(
-            self.frame,
-            (baseAll["L"][0], baseAll["L"][1] + lenth),
-            (baseAll["B"][0] + lenth * 3, baseAll["B"][1] + lenth * 2),
-            (0, 0, 0),
-            1,
-        )
-        cv2.rectangle(
-            self.frame,
-            (baseAll["D"][0], baseAll["D"][1] + lenth),
-            (baseAll["D"][0] + lenth * 3, baseAll["D"][1] + lenth * 2),
-            (0, 0, 0),
-            1,
-        )
+        cv2.rectangle(self.frame, self.offset(baseAll["U"], 0, 1), self.offset(baseAll["U"], 3, 2), (0, 0, 0), 1)
+        cv2.rectangle(self.frame, self.offset(baseAll["L"], 0, 1), self.offset(baseAll["B"], 3, 2), (0, 0, 0), 1)
+        cv2.rectangle(self.frame, self.offset(baseAll["D"], 0, 1), self.offset(baseAll["D"], 3, 2), (0, 0, 0), 1)
 
-        # setting point
-        blockToSet = self.blockToSet.copy()
-        pointBarBase = self.baseAll[self.face[blockToSet[0]]]
-        if blockToSet[1] >= 4:
-            blockToSet[1] += 1
-        pointBarStart = (
-            pointBarBase[0] + lenth * (blockToSet[1] % 3),
-            pointBarBase[1] + lenth * (blockToSet[1] // 3),
-        )
-        pointBarEnd = (
-            pointBarBase[0] + lenth * (blockToSet[1] % 3 + 1),
-            pointBarBase[1] + lenth * (blockToSet[1] // 3 + 1),
-        )
-        cv2.rectangle(self.frame, pointBarStart, pointBarEnd, (0, 0, 0), 2)
+        # Double thickness the edge of setting facelet
+        faceletToSet = self.faceletToSet.copy()
+        faceletBase = self.baseAll[self.face[faceletToSet[0]]]
+        if faceletToSet[1] >= 4:
+            faceletToSet[1] += 1
+        faceletStart = self.offset(faceletBase, divmod(faceletToSet[1], 3)[::-1])
+        faceletEnd = self.offset(faceletBase, add2(divmod(faceletToSet[1], 3)[::-1], (1, 1)))
+        cv2.rectangle(self.frame, faceletStart, faceletEnd, (0, 0, 0), 2)
 
-        # camera picture for next frame
-        cv2.imshow("Cube", self.frame)
-        ret, self.frame_up = self.upCap.read()
-        ret, self.frame_down = self.downCap.read()
-        self.frame_up = cv2.flip(self.frame_up, -1)
-        self.frame_down = cv2.flip(self.frame_down, -1)
-        self.frame = numpy.hstack((self.frame_up, self.frame_down))  # 水平拼接
-        self.frameInHSV = cv2.cvtColor(self.frame, cv2.COLOR_BGR2HSV, self.frameInHSV)
+        # Display and read next frame
+        if self.display:
+            cv2.imshow("Cube", self.frame)
+        self.getFrame()
 
-    def removeset(self):
-        self.blockToSet = [0, 0]
+    def removePositionSetting(self):
+        self.faceletToSet = [0, 0]
         for (faceKey, face) in zip(self.position.keys(), self.position.values()):
             for (pointKey, point) in zip(face.keys(), face.values()):
-                self.position[faceKey][pointKey] = ()
-                self.blockHSV[faceKey][pointKey] = ()
+                self.position[faceKey][pointKey] = []
+                self.faceletHSV[faceKey][pointKey] = ()
 
-    def setBolckPosition(self, x, y):
-        self.position[self.face[self.blockToSet[0]]][self.blockToSet[1]] = (x, y)
+    def addPointToRoi(self, x, y):
+        # todo: this function can be remove
+        if self.roiNotDone():
+            self.facelet()[-1].append((x, y))
+        else:
+            self.facelet().append([(x, y)])
         print(self.frameInHSV[y, x])
         print(self.color(self.frameInHSV[y, x]))
-        if self.needSave:
-            self.needSave = False
-            self.blockToSet = self.blockToSetLast.copy()
-            self.blockToSetLast = [-1, -1]
-            self.savePosition()
-        else:
-            self.blockToSet[1] += 1
-            if self.blockToSet[1] == 8:
-                self.blockToSet[1] = 0
-                self.blockToSet[0] += 1
-                if self.blockToSet[0] == 6:
-                    self.blockToSet = [0, 0]
-                    input("Ready to go!")
-                    self.savePosition()
 
     def savePosition(self):
-        # Save
         print("Saving position...")
         numpy.save("position.npy", self.position)
 
     def loadPosition(self):
-        # Load
         if os.path.isfile("position.npy"):
             print("Loading position...")
             self.position = numpy.load("position.npy").item()
@@ -451,23 +293,24 @@ class Cube:
             print("No position file")
 
     def mouseCallback(self, event, x, y, flags, param):
+        if event != 0:
+            print(event)
         if event == cv2.EVENT_MOUSEMOVE:
             self.lastPosition = (x, y)
             if x < 1280 and y < 480:
-                self.hsv = (
-                    self.frameInHSV[y, x, 0],
-                    self.frameInHSV[y, x, 1],
-                    self.frameInHSV[y, x, 2],
-                )
-
-        if event == cv2.EVENT_LBUTTONDOWN:
+                self.hsv = (self.frameInHSV[y, x, 0], self.frameInHSV[y, x, 1], self.frameInHSV[y, x, 2])
+        elif event == cv2.EVENT_LBUTTONDOWN:
+            print(event, ': EVENT_LBUTTONDBLCLK')
             if (10 < x < 115 and 10 < y < 70) or (650 < x < 850 and 10 < y < 70):
+                # "UP" or "DOWN": Exchange camera cap
                 self.upCap, self.downCap = self.downCap, self.upCap
-                self.removeset()
+                self.removePositionSetting()
             elif 450 < x < 630 and 10 < y < 70:
-                self.rand()
+                # RAND: Random moves
+                self.randomMove()
             elif 1070 < x < 1270 and 10 < y < 70:
-                self.detection()
+                # SOLVE: Going to solve the cube
+                # TODO: check whether position info are all set
                 self.ready = True
             elif (
                 self.baseAll["L"][0] < x < self.baseAll["B"][0] + self.lenth * 3
@@ -476,84 +319,147 @@ class Cube:
                 self.baseAll["U"][0] < x < self.baseAll["D"][0] + self.lenth * 3
                 and self.baseAll["U"][1] < y < self.baseAll["D"][1] + self.lenth * 3
             ):
-                print(self.blockToSet, self.blockToSetLast)
-                self.needSave = True
-                if self.blockToSetLast == [-1, -1]:
-                    self.blockToSetLast = self.blockToSet.copy()
-
-                #   U
-                # L F R B
-                #   D
-                # U0 R1 F2 D3 L4 B5"
-                base = ()
-                if x < self.baseAll["U"][0]:
-                    # In face L
-                    base = self.baseAll["L"]
-                    self.blockToSet[0] = 4
-                elif x < self.baseAll["R"][0]:
-                    # In face U F D
-                    if y < self.baseAll["F"][1]:
-                        # In face U
-                        base = self.baseAll["U"]
-                        self.blockToSet[0] = 0
-                    elif y < self.baseAll["D"][1]:
-                        # In face F
-                        base = self.baseAll["F"]
-                        self.blockToSet[0] = 2
-                    else:
-                        # In face D
-                        base = self.baseAll["D"]
-                        self.blockToSet[0] = 3
-                elif x < self.baseAll["B"][0]:
-                    # In face R
-                    base = self.baseAll["R"]
-                    self.blockToSet[0] = 1
-                else:
-                    # In face B
-                    base = self.baseAll["B"]
-                    self.blockToSet[0] = 5
-
-                # 0 1 2
-                # 3 X 4
-                # 5 6 7
-                if x < base[0] + self.lenth:
-                    # In block 0 3 5
-                    if y < base[1] + self.lenth:
-                        # In block 0
-                        self.blockToSet[1] = 0
-                    elif y < base[1] + self.lenth * 2:
-                        # In block 3
-                        self.blockToSet[1] = 3
-                    else:
-                        # In block 5
-                        self.blockToSet[1] = 5
-                elif x < base[0] + self.lenth * 2:
-                    # In block 1 X 6
-                    if y < base[1] + self.lenth:
-                        # In block 1
-                        self.blockToSet[1] = 1
-                    elif y < base[1] + self.lenth * 2:
-                        # In block X
-                        # Roll back
-                        self.blockToSet = self.blockToSetLast.copy()
-                        self.blockToSetLast = [-1, -1]
-                    else:
-                        # In block 6
-                        self.blockToSet[1] = 6
-                else:
-                    # In block 2 4 7
-                    if y < base[1] + self.lenth:
-                        # In block 2
-                        self.blockToSet[1] = 2
-                    elif y < base[1] + self.lenth * 2:
-                        # In block 4
-                        self.blockToSet[1] = 4
-                    else:
-                        # In block 7
-                        self.blockToSet[1] = 7
-                print(self.blockToSet, self.blockToSetLast)
+                if len(self.facelet()) and isinstance(self.facelet()[-1], list):
+                    # Setting facelet not finish, can't set another one
+                    return
+                # Color bar: Going to set position info of a facelet
+                # Not set by order, so it need to record last facelet
+                # eg: usually set by order, like 0-1-2-3, if find 2 is wrong when set 3
+                #     click on 2 can go back to set 2 again
+                print(self.faceletToSet, self.faceletToSetLast)
+                if self.faceletToSetLast == [-1, -1]:
+                    # TODO: only need to save when all facelets are set
+                    self.needSave = True
+                    self.faceletToSetLast = self.faceletToSet.copy()
+                    self.clickColorBar(x, y)
             else:
-                self.setBolckPosition(x, y)
+                # Not the special cases, click on cube
+                if self.roiNotDone():
+                    self.facelet()[-1].append((x, y))
+                else:
+                    self.facelet().append([(x, y)])
+            print(self.position)
+        elif event == cv2.EVENT_RBUTTONDOWN:
+            if self.roiNotDone():
+                # Remove a point in not finished ROI
+                if len(self.facelet()[-1]) > 0:
+                    self.facelet()[-1].pop()
+            print(self.position)
+        elif event == cv2.EVENT_LBUTTONDBLCLK:
+            roi = self.facelet().pop()
+            if len(roi) > 1:
+                # Complete a not finished ROI
+                self.facelet().append(tuple(roi))
+            else:
+                # Move to next facelet
+                self.nextFacelet()
+                # if self.needSave:
+                # If set by click color bar
+                # Set and save, Continue to set the facelet before click the color bar
+                if self.needSave:
+                    self.needSave = False
+                    self.faceletToSet = self.faceletToSetLast.copy()
+                    self.faceletToSetLast = [-1, -1]
+                    self.savePosition()
+        elif event == cv2.EVENT_RBUTTONDBLCLK:
+            # Remove last ROI
+            if len(self.facelet()) > 0:
+                self.facelet().pop()
+
+    def facelet(self):
+        return self.position[self.face[self.faceletToSet[0]]][self.faceletToSet[1]]
+
+    def nextFacelet(self):
+        self.faceletToSet[1] += 1
+        if self.faceletToSet[1] == 8:
+            self.faceletToSet[1] = 0
+            self.faceletToSet[0] += 1
+            if self.faceletToSet[0] == 6:
+                self.faceletToSet = [0, 0]
+                input("Ready to go!")
+                self.savePosition()
+
+    def roiNotDone(self):
+        # Last ROI is finish or not
+        if len(self.facelet()) == 0 or isinstance(self.facelet()[-1], tuple):
+            return False
+        else:
+            return True
+
+    def clickColorBar(self, x, y):
+        # Click on which face
+        #   U
+        # L F R B
+        #   D
+        # U0 R1 F2 D3 L4 B5"
+        base = ()
+        if x < self.baseAll["U"][0]:
+            # In face L
+            base = self.baseAll["L"]
+            self.faceletToSet[0] = 4
+        elif x < self.baseAll["R"][0]:
+            # In face U F D
+            if y < self.baseAll["F"][1]:
+                # In face U
+                base = self.baseAll["U"]
+                self.faceletToSet[0] = 0
+            elif y < self.baseAll["D"][1]:
+                # In face F
+                base = self.baseAll["F"]
+                self.faceletToSet[0] = 2
+            else:
+                # In face D
+                base = self.baseAll["D"]
+                self.faceletToSet[0] = 3
+        elif x < self.baseAll["B"][0]:
+            # In face R
+            base = self.baseAll["R"]
+            self.faceletToSet[0] = 1
+        else:
+            # In face B
+            base = self.baseAll["B"]
+            self.faceletToSet[0] = 5
+
+        # Click on which facelet
+        # 0 1 2
+        # 3 X 4
+        # 5 6 7
+        if x < base[0] + self.lenth:
+            # Facelet 0 3 5
+            if y < base[1] + self.lenth:
+                # Facelet 0
+                self.faceletToSet[1] = 0
+            elif y < base[1] + self.lenth * 2:
+                # Facelet 3
+                self.faceletToSet[1] = 3
+            else:
+                # Facelet 5
+                self.faceletToSet[1] = 5
+        elif x < base[0] + self.lenth * 2:
+            # Facelet 1 X 6
+            if y < base[1] + self.lenth:
+                # Facelet 1
+                self.faceletToSet[1] = 1
+            elif y < base[1] + self.lenth * 2:
+                # Facelet X(center, not need to set)
+                # Roll back
+                self.faceletToSet = self.faceletToSetLast.copy()
+                self.faceletToSetLast = [-1, -1]
+            else:
+                # Facelet 6
+                self.faceletToSet[1] = 6
+        else:
+            # In facelet 2 4 7
+            if y < base[1] + self.lenth:
+                # In facelet 2
+                self.faceletToSet[1] = 2
+            elif y < base[1] + self.lenth * 2:
+                # In facelet 4
+                self.faceletToSet[1] = 4
+            else:
+                # In facelet 7
+                self.faceletToSet[1] = 7
+        print(self.faceletToSet, self.faceletToSetLast)
 
     def color(self, hsv):
         if hsv[1] < 60 or (hsv[1] < 85 and hsv[2] < 160):
@@ -570,7 +476,7 @@ class Cube:
             else:
                 return "L"
 
-    def rand(self):
+    def randomMove(self):
         randStr = ""
         for i in range(50):
             randStr += self.face[random.randint(0, 5)]
@@ -583,48 +489,30 @@ class Cube:
         if isinstance(moves, bytes):
             self.serial.write(moves)
 
+    def offset(self, base, x, y=None):
+        if isinstance(x, int):
+            return add2(base, mul2((x, y), self.lenth))
+        else:
+            return add2(base, mul2(x, self.lenth))
+
     def main(self):
-        # self.thread.start()
-        # self.show()
-        cv2.setMouseCallback("Cube", self.mouseCallback)
+        # TODO: input buffer and command table
+        if self.display:
+            self.show()
+            cv2.setMouseCallback("Cube", self.mouseCallback)
         self.loadPosition()
-        # self.rand()
-        # self.Str = 'FDFBURUULBDLLRFRRBRBULFULDBDBURDFFURLLFRLFDBBDLUDBUDFR'
-        # self.ready = 1
         while not self.stop:
             self.detection()
-            self.show()
+            if self.display:
+                self.show()
             key = cv2.waitKey(30)
             if self.ready:
-                self.displayUpdate = True
+                self.startTime = time.time()
+                self.detection()
                 self.solve()
-                self.displayUpdate = False
+                self.finishTime = time.time()
+                print("Using time: ", self.finishTime - self.startTime)
                 self.ready = False
-
-
-class myThread(threading.Thread):
-    def __init__(self, threadID, name, counter, Cube):
-        threading.Thread.__init__(self)
-        self.threadID = threadID
-        self.name = name
-        self.counter = counter
-        self.cube = Cube
-
-    def run(self):
-        while self.cube.displayUpdate and not self.cube.stop:
-            self.cube.show()
-            print("bbb")
-            cv2.waitKey(30)
-
-    def pause(self):
-        self.__flag.clear()  # set to False
-
-    def resume(self):
-        self.__flag.set()  # set to True
-
-    def stop(self):
-        self.__flag.set()  # resume if pause
-        self.__running.clear()  # set to False
 
 
 if __name__ == "__main__":
