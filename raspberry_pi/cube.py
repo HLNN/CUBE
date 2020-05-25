@@ -23,15 +23,19 @@ class Cube:
         self.upCap = cv2.VideoCapture
         self.downCap = cv2.VideoCapture
         self.urlBase = "http://localhost:5555/"
-        # self.serial = serial.Serial(serialName, 9600, timeout=0.5)
-        # print("Serial is OK!") if self.serial.isOpen() else print("Open serial failed!")
+        self.serial = serial.Serial(serialName, 9600, timeout=0.5)
+        print("Serial is OK!") if self.serial.isOpen() else print("Open serial failed!")
+        time.sleep(1)
+        self.initMove()
         # Stop and quit the program
         self.stop = False
         # Ready for solving
         self.ready = False
         # True when position info was modified
         self.needSave = False
-        # HSV value at the point the mouse
+        # Print debug info
+        self.debug = True
+        # HSV value at the point of the mouse
         self.hsv = (-1, -1, -1)
         # Start and finish timestamp of single solving
         self.startTime = 0.0
@@ -40,14 +44,14 @@ class Cube:
         self.Str = ""
         # Solving step list
         self.moves = []
-        # Single frame for camera
+        # Single frame from camera
         self.frame_up = []
         self.frame_down = []
         self.frame = []
         self.mask = []
         self.frameInHSV = []
         # Position info of every facelet
-        # Each facelet include several ROI
+        # Each facelet include several ROIs
         self.position = {
             "U": {0: [], 1: [], 2: [], 3: [], 4: [], 5: [], 6: [], 7: []},
             "R": {0: [], 1: [], 2: [], 3: [], 4: [], 5: [], 6: [], 7: []},
@@ -56,9 +60,17 @@ class Cube:
             "L": {0: [], 1: [], 2: [], 3: [], 4: [], 5: [], 6: [], 7: []},
             "B": {0: [], 1: [], 2: [], 3: [], 4: [], 5: [], 6: [], 7: []},
         }
-        # HSV value of every facelet
+        # HSV and BGR value of every facelet
         # Mean of points in ROIs
         self.faceletHSV = {
+            "U": {0: (), 1: (), 2: (), 3: (), 4: (), 5: (), 6: (), 7: ()},
+            "R": {0: (), 1: (), 2: (), 3: (), 4: (), 5: (), 6: (), 7: ()},
+            "F": {0: (), 1: (), 2: (), 3: (), 4: (), 5: (), 6: (), 7: ()},
+            "D": {0: (), 1: (), 2: (), 3: (), 4: (), 5: (), 6: (), 7: ()},
+            "L": {0: (), 1: (), 2: (), 3: (), 4: (), 5: (), 6: (), 7: ()},
+            "B": {0: (), 1: (), 2: (), 3: (), 4: (), 5: (), 6: (), 7: ()},
+        }
+        self.faceletBGR = {
             "U": {0: (), 1: (), 2: (), 3: (), 4: (), 5: (), 6: (), 7: ()},
             "R": {0: (), 1: (), 2: (), 3: (), 4: (), 5: (), 6: (), 7: ()},
             "F": {0: (), 1: (), 2: (), 3: (), 4: (), 5: (), 6: (), 7: ()},
@@ -84,6 +96,8 @@ class Cube:
         # Color bar setting
         self.origin = (450, 285)
         self.lenth = 30
+        # Using real color to fill the color bar
+        self.realColor = False
         self.baseAll = {
             "U": self.offset(self.origin, 3, -3),
             "R": self.offset(self.origin, 6, 0),
@@ -104,14 +118,13 @@ class Cube:
         self.lastPosition = (-1, -1)
         # Facelet going to set
         self.faceletToSet = [0, 0]
-        self.faceletToSetLast = [-1, -1]
+        # Saving as a stack
+        self.faceletToSetLast = []
         try:
             self.upCap = cv2.VideoCapture(0)
-            # self.downCap = cv2.VideoCapture(2)
-            self.downCap = self.upCap
+            self.downCap = cv2.VideoCapture(2)
             self.getFrame()
-            self.mask = self.frame.copy()
-            self.mask = cv2.cvtColor(self.mask, cv2.COLOR_BGR2GRAY)
+            self.mask = cv2.cvtColor(self.frame.copy(), cv2.COLOR_BGR2GRAY)
         except:
             print("Open camera failed!")
             self.stop = True
@@ -124,25 +137,29 @@ class Cube:
         self.frame = numpy.hstack((self.frame_up, self.frame_down))
         self.frameInHSV = cv2.cvtColor(self.frame, cv2.COLOR_BGR2HSV)
 
-    def detection(self):
+    def detect(self):
         self.getFrame()
         # U-yellow R-green F-red D-white L-blue B-orange
-        # todo: Change point to ROIs when detect
         for (faceKey, face) in zip(self.position.keys(), self.position.values()):
-            for (pointKey, point) in zip(face.keys(), face.values()):
-                if point:
-                    rois = self.position[faceKey][pointKey]
+            for (faceletKey, facelet) in zip(face.keys(), face.values()):
+                self.faceletColor[faceKey][faceletKey] = ""
+                if facelet:
+                    rois = facelet
                     faceletColor = (0, 0, 0)
+                    roiNum = 0
+                    self.mask[:, :] = 0
                     for roi in rois:
                         if isinstance(roi, list):
                             continue
-                        self.mask[:, :] = 0
+                        roiNum += 1
                         cv2.fillPoly(self.mask, numpy.array([roi]), (255, 255, 255))
-                        meanColor = cv2.mean(self.frame, self.mask)
-                        add2(faceletColor, meanColor)
-                    self.faceletColor[faceKey][pointKey] = self.color(faceletColor)
-                else:
-                    self.faceletColor[faceKey][pointKey] = ""
+                    if roiNum > 0:
+                        # Remove alpha
+                        roiHSVColor = cv2.mean(self.frameInHSV, self.mask)[:-1]
+                        roiBGRColor = cv2.mean(self.frame, self.mask)[:-1]
+                        self.faceletHSV[faceKey][faceletKey] = roiHSVColor
+                        self.faceletBGR[faceKey][faceletKey] = roiBGRColor
+                        self.faceletColor[faceKey][faceletKey] = self.color(roiHSVColor)
         self.colorstr()
 
     def colorstr(self):
@@ -159,21 +176,37 @@ class Cube:
 
     def solve(self):
         for _ in range(5):
-            print(self.faceletColor)
-            print(self.Str)
+            # Try up to 5 times
+            self.detect()
+            if self.debug:
+                print(self.faceletColor)
+                print(self.Str)
+            # Checking str len
+            if len(self.Str) != 54:
+                if len(self.Str) < 54:
+                    print("Error! Bad facelet str len. Less than 54.")
+                else:
+                    rint("Error! Bad facelet str len. More than 54.")
+                continue
+            # Checking str color
+            colors = {"U": 0, "R": 0, "F": 0, "D": 0, "L": 0, "B": 0}
+            for c in range(54):
+                colors[self.Str[c]] += 1
+            if not all(num == 9 for num in colors):
+                print("Error! Bad facelet str color. Not 9 for each color.")
+                continue
+            # Solving
             url = self.urlBase + self.Str
             ti = time.time()
             response = requests.urlopen(url).read()
-            print(time.time() - ti)
-            print(response)
-            pattern = re.compile("\n.*?\(", re.S)
-            moves = re.findall(pattern, response.decode())
-            print(moves)
+            moves = re.findall("\n.*?\(", response.decode(), re.S)
+            if self.debug:
+                print(time.time() - ti)
+                print(response)
+                print(moves)
             if moves:
                 self.move(moves[0])
                 return
-            else:
-                self.detection()
 
     def show(self):
         cv2.putText(self.frame, "UP", (20, 60), self.font, 2, (0, 0, 0), 2, self.line)
@@ -203,7 +236,7 @@ class Cube:
         cv2.rectangle(self.frame, baseAll["L"], self.offset(baseAll["B"], 3, 3), (127, 127, 127), -1)
         cv2.rectangle(self.frame, baseAll["U"], self.offset(baseAll["D"], 3, 3), (127, 127, 127), -1)
 
-        # Position point and color bar
+        # Position rois and color bar
         for (faceKey, face) in zip(self.position.keys(), self.position.values()):
             # Center facelet of every face
             colorBarBase = self.baseAll[faceKey]
@@ -214,8 +247,7 @@ class Cube:
 
             for (faceletKey, facelet) in zip(face.keys(), face.values()):
                 if facelet:
-                    # Draw position point on cube
-                    # TODO: change position point to position ROIs when display setting
+                    # Draw position rois on cube
                     for roi in facelet:
                         if len(roi):
                             start = roi[0]
@@ -226,10 +258,13 @@ class Cube:
                                 lastPoint = point
                             if isinstance(roi, tuple):
                                 cv2.line(self.frame, lastPoint, start, (0, 0, 0))
-                    # Draw facelet colot in color bar
+                    # Fill facelet colot in color bar
                     color = self.faceletColor[faceKey][faceletKey]
                     if color:
-                        colorValue = self.colorValue[color]
+                        if self.realColor:
+                            colorValue = self.faceletBGR[faceKey][faceletKey]
+                        else:
+                            colorValue = self.colorValue[color]
                         if faceletKey >= 4:
                             faceletKey += 1
                         colorBarStart = self.offset(colorBarBase, divmod(faceletKey, 3)[::-1])
@@ -270,16 +305,8 @@ class Cube:
         for (faceKey, face) in zip(self.position.keys(), self.position.values()):
             for (pointKey, point) in zip(face.keys(), face.values()):
                 self.position[faceKey][pointKey] = []
-                self.faceletHSV[faceKey][pointKey] = ()
-
-    def addPointToRoi(self, x, y):
-        # todo: this function can be remove
-        if self.roiNotDone():
-            self.facelet()[-1].append((x, y))
-        else:
-            self.facelet().append([(x, y)])
-        print(self.frameInHSV[y, x])
-        print(self.color(self.frameInHSV[y, x]))
+                # self.faceletHSV[faceKey][pointKey] = ()
+                # self.faceletBGR[faceKey][pointKey] = ()
 
     def savePosition(self):
         print("Saving position...")
@@ -293,14 +320,13 @@ class Cube:
             print("No position file")
 
     def mouseCallback(self, event, x, y, flags, param):
-        if event != 0:
+        if self.debug and event != 0:
             print(event)
         if event == cv2.EVENT_MOUSEMOVE:
             self.lastPosition = (x, y)
             if x < 1280 and y < 480:
                 self.hsv = (self.frameInHSV[y, x, 0], self.frameInHSV[y, x, 1], self.frameInHSV[y, x, 2])
         elif event == cv2.EVENT_LBUTTONDOWN:
-            print(event, ': EVENT_LBUTTONDBLCLK')
             if (10 < x < 115 and 10 < y < 70) or (650 < x < 850 and 10 < y < 70):
                 # "UP" or "DOWN": Exchange camera cap
                 self.upCap, self.downCap = self.downCap, self.upCap
@@ -322,62 +348,72 @@ class Cube:
                 if len(self.facelet()) and isinstance(self.facelet()[-1], list):
                     # Setting facelet not finish, can't set another one
                     return
-                # Color bar: Going to set position info of a facelet
-                # Not set by order, so it need to record last facelet
-                # eg: usually set by order, like 0-1-2-3, if find 2 is wrong when set 3
-                #     click on 2 can go back to set 2 again
-                print(self.faceletToSet, self.faceletToSetLast)
-                if self.faceletToSetLast == [-1, -1]:
-                    # TODO: only need to save when all facelets are set
-                    self.needSave = True
-                    self.faceletToSetLast = self.faceletToSet.copy()
-                    self.clickColorBar(x, y)
+                # Going to set position info of another facelet
+                # Not set by order, so it need to record last setting facelet
+                if self.debug:
+                    print(self.faceletToSet, self.faceletToSetLast)
+                self.faceletToSetLast.append(self.faceletToSet.copy())
+                self.clickColorBar(x, y)
+                if self.debug:
+                    print(self.faceletToSet, self.faceletToSetLast)
             else:
                 # Not the special cases, click on cube
                 if self.roiNotDone():
+                    # TODO: Checking distance
+                    # lastPoint = self.facelet()[-1][-1]
                     self.facelet()[-1].append((x, y))
                 else:
                     self.facelet().append([(x, y)])
-            print(self.position)
+            if self.debug:
+                print(event, ': EVENT_LBUTTONDOWN')
+                print(self.position)
         elif event == cv2.EVENT_RBUTTONDOWN:
             if self.roiNotDone():
                 # Remove a point in not finished ROI
                 if len(self.facelet()[-1]) > 0:
                     self.facelet()[-1].pop()
-            print(self.position)
+            if self.debug:
+                print(event, ': EVENT_RBUTTONDOWN')
+                print(self.position)
         elif event == cv2.EVENT_LBUTTONDBLCLK:
             roi = self.facelet().pop()
-            if len(roi) > 1:
+            if len(roi) > 3:
                 # Complete a not finished ROI
-                self.facelet().append(tuple(roi))
-            else:
+                # ROI with at least 3 point
+                # Double click will add the last point twice, remove one
+                self.facelet().append(tuple(roi[:-1]))
+            elif len(roi) == 2:
                 # Move to next facelet
+                # If len(roi) == 3, that means this roi only have two point, remove
                 self.nextFacelet()
-                # if self.needSave:
-                # If set by click color bar
-                # Set and save, Continue to set the facelet before click the color bar
-                if self.needSave:
-                    self.needSave = False
-                    self.faceletToSet = self.faceletToSetLast.copy()
-                    self.faceletToSetLast = [-1, -1]
-                    self.savePosition()
+            if self.debug:
+                print(event, ': EVENT_LBUTTONDBLCLK')
+                print(self.position)
         elif event == cv2.EVENT_RBUTTONDBLCLK:
             # Remove last ROI
             if len(self.facelet()) > 0:
                 self.facelet().pop()
+            if self.debug:
+                print(event, ': EVENT_RBUTTONDBLCLK')
+                print(self.position)
 
     def facelet(self):
         return self.position[self.face[self.faceletToSet[0]]][self.faceletToSet[1]]
 
     def nextFacelet(self):
-        self.faceletToSet[1] += 1
-        if self.faceletToSet[1] == 8:
-            self.faceletToSet[1] = 0
-            self.faceletToSet[0] += 1
-            if self.faceletToSet[0] == 6:
-                self.faceletToSet = [0, 0]
-                input("Ready to go!")
-                self.savePosition()
+        if self.faceletToSetLast:
+            self.faceletToSet = self.faceletToSetLast.pop()            
+        else:
+            self.faceletToSet[1] += 1
+            if self.faceletToSet[1] == 8:
+                self.faceletToSet[1] = 0
+                self.faceletToSet[0] += 1
+                if self.faceletToSet[0] == 6:
+                    self.faceletToSet = [0, 0]
+                    print("Ready to go!")
+        self.detect()
+        if len(self.Str) == 54:
+            self.savePosition()
 
     def roiNotDone(self):
         # Last ROI is finish or not
@@ -441,10 +477,8 @@ class Cube:
                 # Facelet 1
                 self.faceletToSet[1] = 1
             elif y < base[1] + self.lenth * 2:
-                # Facelet X(center, not need to set)
-                # Roll back
-                self.faceletToSet = self.faceletToSetLast.copy()
-                self.faceletToSetLast = [-1, -1]
+                # Facelet X, ignore
+                self.faceletToSet = self.faceletToSetLast.pop()
             else:
                 # Facelet 6
                 self.faceletToSet[1] = 6
@@ -459,10 +493,9 @@ class Cube:
             else:
                 # In facelet 7
                 self.faceletToSet[1] = 7
-        print(self.faceletToSet, self.faceletToSetLast)
 
     def color(self, hsv):
-        if hsv[1] < 60 or (hsv[1] < 85 and hsv[2] < 160):
+        if hsv[1] < 60: # or (hsv[1] < 80 and hsv[2] < 160):
             return "D"
         else:
             if hsv[0] < 10:
@@ -481,7 +514,11 @@ class Cube:
         for i in range(50):
             randStr += self.face[random.randint(0, 5)]
             randStr += str(random.randint(1, 3))
+        print("*" + randStr + "*")
         self.move(randStr)
+        
+    def initMove(self):
+        self.move("U1U3R1R3F1F3D1D3L1L3B1B3")
 
     def move(self, moves):
         if isinstance(moves, str):
@@ -502,13 +539,12 @@ class Cube:
             cv2.setMouseCallback("Cube", self.mouseCallback)
         self.loadPosition()
         while not self.stop:
-            self.detection()
+            self.detect()
             if self.display:
                 self.show()
             key = cv2.waitKey(30)
             if self.ready:
                 self.startTime = time.time()
-                self.detection()
                 self.solve()
                 self.finishTime = time.time()
                 print("Using time: ", self.finishTime - self.startTime)
