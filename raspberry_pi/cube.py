@@ -305,8 +305,6 @@ class Cube:
         for (faceKey, face) in zip(self.position.keys(), self.position.values()):
             for (pointKey, point) in zip(face.keys(), face.values()):
                 self.position[faceKey][pointKey] = []
-                # self.faceletHSV[faceKey][pointKey] = ()
-                # self.faceletBGR[faceKey][pointKey] = ()
 
     def savePosition(self):
         print("Saving position...")
@@ -326,26 +324,28 @@ class Cube:
             self.lastPosition = (x, y)
             if x < 1280 and y < 480:
                 self.hsv = (self.frameInHSV[y, x, 0], self.frameInHSV[y, x, 1], self.frameInHSV[y, x, 2])
-        elif event == cv2.EVENT_LBUTTONDOWN:
-            if (10 < x < 115 and 10 < y < 70) or (650 < x < 850 and 10 < y < 70):
+        elif (10 < x < 115 and 10 < y < 70) or (650 < x < 850 and 10 < y < 70):
+            if event == cv2.EVENT_LBUTTONDOWN:
                 # "UP" or "DOWN": Exchange camera cap
                 self.upCap, self.downCap = self.downCap, self.upCap
                 self.removePositionSetting()
-            elif 450 < x < 630 and 10 < y < 70:
+        elif 450 < x < 630 and 10 < y < 70:
+            if event == cv2.EVENT_LBUTTONDOWN:
                 # RAND: Random moves
                 self.randomMove()
-            elif 1070 < x < 1270 and 10 < y < 70:
+        elif 1070 < x < 1270 and 10 < y < 70:
+            if event == cv2.EVENT_LBUTTONDOWN:
                 # SOLVE: Going to solve the cube
-                # TODO: check whether position info are all set
                 self.ready = True
-            elif (
-                self.baseAll["L"][0] < x < self.baseAll["B"][0] + self.lenth * 3
-                and self.baseAll["L"][1] < y < self.baseAll["B"][1] + self.lenth * 3
-            ) or (
-                self.baseAll["U"][0] < x < self.baseAll["D"][0] + self.lenth * 3
-                and self.baseAll["U"][1] < y < self.baseAll["D"][1] + self.lenth * 3
-            ):
-                if len(self.facelet()) and isinstance(self.facelet()[-1], list):
+        elif (
+            self.baseAll["L"][0] < x < self.baseAll["B"][0] + self.lenth * 3
+            and self.baseAll["L"][1] < y < self.baseAll["B"][1] + self.lenth * 3
+        ) or (
+            self.baseAll["U"][0] < x < self.baseAll["D"][0] + self.lenth * 3
+            and self.baseAll["U"][1] < y < self.baseAll["D"][1] + self.lenth * 3
+        ):
+            if event == cv2.EVENT_LBUTTONDOWN:
+                if self.roiNotDone():
                     # Setting facelet not finish, can't set another one
                     return
                 # Going to set position info of another facelet
@@ -356,46 +356,46 @@ class Cube:
                 self.clickColorBar(x, y)
                 if self.debug:
                     print(self.faceletToSet, self.faceletToSetLast)
-            else:
-                # Not the special cases, click on cube
+        else:
+            # Not the special cases, click on cube
+            if event == cv2.EVENT_LBUTTONDOWN:
                 if self.roiNotDone():
                     # TODO: Checking distance
-                    # lastPoint = self.facelet()[-1][-1]
                     self.facelet()[-1].append((x, y))
                 else:
                     self.facelet().append([(x, y)])
-            if self.debug:
-                print(event, ': EVENT_LBUTTONDOWN')
-                print(self.position)
-        elif event == cv2.EVENT_RBUTTONDOWN:
-            if self.roiNotDone():
-                # Remove a point in not finished ROI
-                if len(self.facelet()[-1]) > 0:
-                    self.facelet()[-1].pop()
-            if self.debug:
-                print(event, ': EVENT_RBUTTONDOWN')
-                print(self.position)
-        elif event == cv2.EVENT_LBUTTONDBLCLK:
-            roi = self.facelet().pop()
-            if len(roi) > 3:
-                # Complete a not finished ROI
-                # ROI with at least 3 point
-                # Double click will add the last point twice, remove one
-                self.facelet().append(tuple(roi[:-1]))
-            elif len(roi) == 2:
-                # Move to next facelet
-                # If len(roi) == 3, that means this roi only have two point, remove
-                self.nextFacelet()
-            if self.debug:
-                print(event, ': EVENT_LBUTTONDBLCLK')
-                print(self.position)
-        elif event == cv2.EVENT_RBUTTONDBLCLK:
-            # Remove last ROI
-            if len(self.facelet()) > 0:
-                self.facelet().pop()
-            if self.debug:
-                print(event, ': EVENT_RBUTTONDBLCLK')
-                print(self.position)
+                if self.debug:
+                    print(event, ': EVENT_LBUTTONDOWN')
+                    print(self.position)
+            elif event == cv2.EVENT_RBUTTONDOWN:
+                if self.roiNotDone():
+                    # Remove a point in not finished ROI
+                    if len(self.facelet()[-1]) > 0:
+                        self.facelet()[-1].pop()
+                if self.debug:
+                    print(event, ': EVENT_RBUTTONDOWN')
+                    print(self.position)
+            elif event == cv2.EVENT_LBUTTONDBLCLK:
+                roi = self.facelet().pop()
+                if len(roi) > 3:
+                    # Complete a not finished ROI
+                    # ROI with at least 3 point
+                    # Double click will add the last point twice, remove one
+                    self.facelet().append(tuple(roi[:-1]))
+                elif len(roi) == 2:
+                    # Move to next facelet
+                    # If len(roi) == 3, that means this roi only have two point, remove
+                    self.nextFacelet()
+                if self.debug:
+                    print(event, ': EVENT_LBUTTONDBLCLK')
+                    print(self.position)
+            elif event == cv2.EVENT_RBUTTONDBLCLK:
+                # Remove last ROI
+                if len(self.facelet()) > 0:
+                    self.facelet().pop()
+                if self.debug:
+                    print(event, ': EVENT_RBUTTONDBLCLK')
+                    print(self.position)
 
     def facelet(self):
         return self.position[self.face[self.faceletToSet[0]]][self.faceletToSet[1]]
